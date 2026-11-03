@@ -1,5 +1,6 @@
 use super::*;
-use horizon_client::{osk::Output, ui_theme::color};
+use crate::launcher_style::{self as style, color};
+use horizon_client::osk::Output;
 use winit::{
     event::{KeyEvent, Touch},
     keyboard::{KeyCode, PhysicalKey},
@@ -75,28 +76,34 @@ pub(super) fn button(
     accent: bool,
 ) {
     let [x, y, w, h] = rect;
+    // Fields and long value rows read from the left; actions are centred pills (Material 3).
+    let field = matches!(action, Action::Field(_)) || (w > 260.0 && !accent);
+    let radius = if field { 12.0 } else { (h / 2.0).min(22.0) };
     ui.rounded(
         x,
         y,
         w,
         h,
-        2.0,
+        radius,
         if accent { color::ACCENT } else { color::RAISED },
     );
-    let padding = (w * 0.12).clamp(4.0, 12.0);
-    let base = if w < 80.0 { 13.0 } else { 16.0 };
-    let font = if matches!(action, Action::Page(_)) {
-        (base * ((w - 2.0 * padding) / ui.measure(Face::Medium, base, label).max(1.0)).min(1.0))
-            .max(9.0)
+    let padding = if field {
+        12.0
     } else {
-        base
+        (w * 0.12).clamp(4.0, 16.0)
     };
+    let font = if w < 80.0 { 13.0 } else { 16.0 };
     let label = ui.fit_text(Face::Medium, font, label, w - 2.0 * padding);
+    let left = if field {
+        x + padding
+    } else {
+        x + (w - ui.measure(Face::Medium, font, &label)) / 2.0
+    };
     ui.text(
         Face::Medium,
         font,
-        x + padding,
-        y + 11.0,
+        left,
+        y + ((h - font * 1.45) / 2.0).max(0.0),
         if accent {
             color::ON_ACCENT
         } else {
@@ -106,6 +113,7 @@ pub(super) fn button(
     );
     targets.push((rect, action));
 }
+/// A Material 3 switch with its state written beside it.
 fn toggle(
     ui: &mut Ui,
     targets: &mut Vec<([f32; 4], Action)>,
@@ -119,25 +127,18 @@ fn toggle(
         14.0,
         x,
         y + 11.0,
-        color::TEXT,
+        color::MUTED,
         if on { "On" } else { "Off" },
     );
-    ui.rounded(
-        x + w - 52.0,
-        y + 8.0,
-        48.0,
-        24.0,
-        12.0,
-        if on { color::TEXT } else { color::HOVER },
-    );
-    ui.rounded(
-        x + w - if on { 26.0 } else { 50.0 },
-        y + 10.0,
-        20.0,
-        20.0,
-        10.0,
-        if on { color::BG } else { color::TEXT },
-    );
+    let (tx, ty) = (x + w - 56.0, y + ((h - 32.0) / 2.0).max(0.0));
+    if on {
+        ui.rounded(tx, ty, 52.0, 32.0, 16.0, color::ACCENT);
+        ui.rounded(tx + 24.0, ty + 4.0, 24.0, 24.0, 12.0, color::ON_ACCENT);
+    } else {
+        ui.rounded(tx, ty, 52.0, 32.0, 16.0, color::HOVER);
+        ui.border(tx, ty, 52.0, 32.0, 16.0, color::OUTLINE);
+        ui.rounded(tx + 8.0, ty + 8.0, 16.0, 16.0, 8.0, color::OUTLINE);
+    }
     targets.push(([x, y, w, h], action));
 }
 impl Launcher {
@@ -227,59 +228,60 @@ impl Launcher {
         if let Some(bottom) = crate::native_ime::viewport_bottom() {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
-        let (w, h) = (ui.w, ui.h);
+        let (sw, sh) = (ui.w, ui.h);
         let scale = ui.density / ui.batch.scale;
         ui.batch
-            .fill(&gui.atlas, 0.0, 0.0, w * scale, h * scale, color::BG);
+            .fill(&gui.atlas, 0.0, 0.0, sw * scale, sh * scale, color::BG);
+        // Navigation: a rail on wide screens, a bottom bar in portrait.
+        let wide = sw >= 700.0;
+        let nav = if wide {
+            style::rail(&mut ui, self.catalog.page, sh)
+        } else {
+            style::bar(&mut ui, self.catalog.page, sw, sh)
+        };
+        self.targets.extend(
+            nav.into_iter()
+                .map(|(rect, page)| (rect, Action::Page(page))),
+        );
+        let left = if wide { style::RAIL } else { 0.0 };
+        // The top bar: the title, and the account on every page but Play (its panel has it).
+        let title_x = left + if wide { 32.0 } else { 20.0 };
+        let title_size = if wide { 26.0 } else { 22.0 };
         ui.text(
-            Face::Medium,
-            if w < 400.0 {
-                20.0
-            } else if w < 700.0 {
-                24.0
-            } else {
-                32.0
-            },
-            32.0,
-            if w < 700.0 { 12.0 } else { 28.0 },
+            Face::SemiBold,
+            title_size,
+            title_x,
+            18.0,
             color::TEXT,
-            &format!("Horizon Android {}", crate::backend::VERSION),
+            "Horizon",
         );
-        button(
-            &mut ui,
-            &mut self.targets,
-            [
-                if w < 700.0 { 32.0 } else { w - 320.0 },
-                if w < 700.0 { 47.0 } else { 24.0 },
-                if w < 700.0 { w - 64.0 } else { 288.0 },
-                if w < 700.0 { 34.0 } else { 46.0 },
-            ],
-            &self.login.status(&self.catalog.config.name),
-            Action::Account,
-            self.login.signed_in,
+        let version_x = title_x + ui.measure(Face::SemiBold, title_size, "Horizon") + 10.0;
+        let chip_w = if wide { 280.0 } else { 196.0 };
+        let version = ui.fit_text(
+            Face::Regular,
+            13.0,
+            &format!("Android {}", crate::backend::VERSION),
+            (sw - chip_w - 32.0 - version_x).max(0.0),
         );
-        let tabs = Page::ALL.len() as f32;
-        let tab_margin = if w < 700.0 { 16.0 } else { 32.0 };
-        let tab_width = (w - 2.0 * tab_margin) / tabs;
-        for (i, page) in Page::ALL.iter().enumerate() {
-            let x = tab_margin + i as f32 * tab_width;
-            button(
+        ui.text(Face::Regular, 13.0, version_x, 30.0, color::MUTED, &version);
+        if self.catalog.page != Page::Play {
+            let rect = [sw - chip_w - 16.0, 14.0, chip_w, 48.0];
+            style::account_chip(
                 &mut ui,
-                &mut self.targets,
-                [x, 88.0, tab_width - 4.0, 42.0],
-                if w < 700.0 {
-                    match page {
-                        Page::Installed => "Files",
-                        Page::Settings => "Setup",
-                        _ => page.name(),
-                    }
-                } else {
-                    page.name()
-                },
-                Action::Page(*page),
-                *page == self.catalog.page,
+                rect,
+                &self.login.status(&self.catalog.config.name),
+                self.login.signed_in,
             );
+            self.targets.push((rect, Action::Account));
         }
+        // The pages lay out in their own panel: right of the rail, above the bar, and
+        // `SHIFT` higher than under the old tab row the top bar replaces.
+        const SHIFT: f32 = 48.0;
+        ui.origin = (left, -SHIFT);
+        ui.w = sw - left;
+        ui.h = sh + SHIFT - if wide { 0.0 } else { style::BAR };
+        let first_target = self.targets.len();
+        let (w, h) = (ui.w, ui.h);
         let compact = w < 700.0;
         let page = self.catalog.page;
         if page == Page::Play {
@@ -287,88 +289,111 @@ impl Launcher {
             let installed = horizon_client::official_install::ready(&self.home);
             let installing = self.worker.is_some();
             let progress = *self.install.lock().unwrap();
-            let top = 160.0;
+            let current = InstallStage::ALL
+                .iter()
+                .position(|s| *s == progress.stage)
+                .unwrap_or(0);
+            let fraction = if progress.total > 0 {
+                progress.done as f32 / progress.total as f32
+            } else {
+                0.0
+            };
+            let overall = (current as f32 + fraction.clamp(0.0, 1.0)) / 6.0;
+            let (top, foot, gap, card_h, launch_h) = (134.0, h - 64.0, 16.0, 84.0, 72.0);
+            // The launch panel (account, version, mods, Launch) beside the overview; stacked
+            // under it in portrait.
+            let (panel, hero) = if compact {
+                let panel_h = 2.0 * (card_h + gap) + launch_h;
+                (
+                    [24.0, foot - panel_h, w - 48.0, panel_h],
+                    [24.0, top, w - 48.0, foot - panel_h - gap - top],
+                )
+            } else {
+                let pw = (w * 0.34).clamp(280.0, 380.0);
+                (
+                    [w - 32.0 - pw, top, pw, foot - top],
+                    [32.0, top, w - 64.0 - pw - gap, foot - top],
+                )
+            };
+            let [hx, hy, hw, hh] = hero;
+            style::card(&mut ui, hero, color::CARD);
+            let band = (hh * 0.4).clamp(110.0, 150.0);
+            ui.rounded(hx, hy, hw, band, 16.0, color::ACCENT_CONTAINER);
+            ui.rounded(hx, hy + band - 16.0, hw, 16.0, 0.0, color::ACCENT_CONTAINER);
+            let headline = if installing {
+                "Getting your game ready"
+            } else if installed {
+                "Ready to play"
+            } else if hw < 420.0 {
+                "Your Java worlds"
+            } else {
+                "Your Java worlds, on Android"
+            };
+            let headline = ui.fit_text(Face::SemiBold, 28.0, headline, hw - 48.0);
             ui.text(
-                Face::Medium,
-                32.0,
-                32.0,
-                top,
-                color::TEXT,
-                if installing {
-                    "Getting your game ready"
-                } else if installed {
-                    "Ready to play"
-                } else {
-                    if compact {
-                        "Your Java worlds"
-                    } else {
-                        "Your Java worlds, on Android"
-                    }
-                },
+                Face::SemiBold,
+                28.0,
+                hx + 24.0,
+                hy + band - 92.0,
+                color::ON_ACCENT_CONTAINER,
+                &headline,
             );
             ui.text(
                 Face::Regular,
-                17.0,
-                32.0,
-                top + 47.0,
-                color::MUTED,
-                &format!("Minecraft 26.3  /  Profile {}", self.catalog.config.profile),
+                15.0,
+                hx + 24.0,
+                hy + band - 44.0,
+                color::ON_ACCENT_CONTAINER,
+                &format!("Minecraft 26.3  ·  Profile {}", self.catalog.config.profile),
             );
+            let body = hy + band + 20.0;
             if installing {
-                let current = InstallStage::ALL
-                    .iter()
-                    .position(|s| *s == progress.stage)
-                    .unwrap_or(0);
-                let row_height = ((h - 360.0) / 6.0).clamp(25.0, 40.0);
-                if h >= 620.0 {
+                let rows = hh - band - 80.0;
+                if rows >= 6.0 * 26.0 {
+                    let step = (rows / 6.0).min(34.0);
                     for (index, stage) in InstallStage::ALL.iter().enumerate() {
-                        let y = top + 90.0 + index as f32 * row_height;
-                        let label = if index < current {
-                            format!("{:02}  {}  - done", index + 1, stage.label())
+                        let y = body + index as f32 * step;
+                        let (fill, ink) = if index < current {
+                            (color::GOOD, color::ON_GOOD)
+                        } else if index == current {
+                            (color::ACCENT, color::ON_ACCENT)
                         } else {
-                            format!("{:02}  {}", index + 1, stage.label())
+                            (color::RAISED, color::MUTED)
                         };
+                        ui.rounded(hx + 24.0, y + 1.0, 22.0, 22.0, 11.0, fill);
+                        let n = format!("{}", index + 1);
+                        let nw = ui.measure(Face::Medium, 12.0, &n);
+                        ui.text(Face::Medium, 12.0, hx + 35.0 - nw / 2.0, y + 3.0, ink, &n);
                         ui.text(
                             Face::Regular,
                             16.0,
-                            32.0,
+                            hx + 58.0,
                             y,
                             if index == current {
                                 color::TEXT
                             } else {
                                 color::MUTED
                             },
-                            &label,
+                            stage.label(),
                         );
                     }
                 } else {
                     ui.text(
                         Face::Regular,
                         18.0,
-                        32.0,
-                        top + 100.0,
+                        hx + 24.0,
+                        body,
                         color::TEXT,
                         progress.stage.label(),
                     );
                     ui.text(
                         Face::Regular,
                         15.0,
-                        32.0,
-                        top + 138.0,
+                        hx + 24.0,
+                        body + 32.0,
                         color::MUTED,
                         &format!("Step {} of 6", current + 1),
                     );
-                }
-                let fraction = if progress.total > 0 {
-                    progress.done as f32 / progress.total as f32
-                } else {
-                    0.0
-                };
-                let overall = (current as f32 + fraction.clamp(0.0, 1.0)) / 6.0;
-                let bar_y = h - 152.0;
-                ui.rounded(32.0, bar_y, w - 64.0, 4.0, 2.0, color::RAISED);
-                if overall > 0.0 {
-                    ui.rounded(32.0, bar_y, (w - 64.0) * overall, 4.0, 2.0, color::ACCENT);
                 }
                 let detail = match progress.stage {
                     InstallStage::Download => format!(
@@ -382,63 +407,187 @@ impl Launcher {
                     ),
                     _ => "Please keep Horizon open. Downloaded files are kept for retry.".into(),
                 };
+                let detail = ui.fit_text(Face::Regular, 14.0, &detail, hw - 48.0);
                 ui.text(
                     Face::Regular,
                     14.0,
-                    32.0,
-                    bar_y + 12.0,
+                    hx + 24.0,
+                    hy + hh - 40.0,
                     color::MUTED,
                     &detail,
                 );
             } else {
                 let rows = if installed {
                     [
-                        "01  Open a world or join a Java server",
-                        "02  Touch setup: Options > Controls",
-                        "03  Find packs and .hmod in the tabs",
+                        "Open a world or join a Java server",
+                        "Touch setup: Options > Controls",
+                        "Find packs, .hmod and .hnmod in the tabs",
                     ]
                 } else {
                     [
-                        "01  Download resources from Mojang",
-                        "02  Install and verify on this phone",
-                        "03  Play offline or sign in for servers",
+                        "Download resources from Mojang",
+                        "Install and verify on this phone",
+                        "Play offline or sign in for servers",
                     ]
                 };
                 for (index, line) in rows.iter().enumerate() {
+                    let y = body + index as f32 * 40.0;
+                    if y + 30.0 > hy + hh {
+                        break;
+                    }
+                    ui.rounded(hx + 24.0, y, 26.0, 26.0, 13.0, color::RAISED);
+                    let n = format!("{}", index + 1);
+                    let nw = ui.measure(Face::Medium, 13.0, &n);
                     ui.text(
-                        Face::Regular,
-                        17.0,
-                        32.0,
-                        top + 100.0 + index as f32 * 42.0,
-                        color::MUTED,
-                        line,
+                        Face::Medium,
+                        13.0,
+                        hx + 37.0 - nw / 2.0,
+                        y + 4.0,
+                        color::TEXT,
+                        &n,
                     );
+                    let line = ui.fit_text(Face::Regular, 16.0, line, hw - 90.0);
+                    ui.text(Face::Regular, 16.0, hx + 62.0, y + 2.0, color::MUTED, &line);
                 }
             }
-            if installing {
+            // The panel.
+            let [px, py, pw, ph] = panel;
+            let account = [px, py, pw, card_h];
+            style::card(&mut ui, account, color::CARD);
+            let status = self.login.status(&self.catalog.config.name);
+            let (state, name) = style::split_status(&status);
+            style::avatar(&mut ui, px + 16.0, py + 18.0, 48.0, name);
+            let name = ui.fit_text(Face::Medium, 18.0, name, pw - 96.0);
+            ui.text(Face::Medium, 18.0, px + 78.0, py + 16.0, color::TEXT, &name);
+            let state = ui.fit_text(Face::Regular, 13.0, state, pw - 96.0);
+            ui.text(
+                Face::Regular,
+                13.0,
+                px + 78.0,
+                py + 46.0,
+                if self.login.signed_in {
+                    color::ACCENT
+                } else {
+                    color::MUTED
+                },
+                &state,
+            );
+            self.targets.push((account, Action::Account));
+            let version = [px, py + card_h + gap, pw, card_h];
+            style::card(&mut ui, version, color::CARD);
+            ui.text(
+                Face::Medium,
+                18.0,
+                px + 16.0,
+                version[1] + 14.0,
+                color::TEXT,
+                "Minecraft 26.3",
+            );
+            let about = ui.fit_text(
+                Face::Regular,
+                13.0,
+                &format!(
+                    "Horizon Android {}  ·  Profile {}  v",
+                    crate::backend::VERSION,
+                    self.catalog.config.profile
+                ),
+                pw - 32.0,
+            );
+            ui.text(
+                Face::Regular,
+                13.0,
+                px + 16.0,
+                version[1] + 46.0,
+                color::MUTED,
+                &about,
+            );
+            self.targets.push((version, Action::Profile));
+            if ph >= 3.0 * (card_h + gap) + launch_h {
+                let mods = [px, py + 2.0 * (card_h + gap), pw, card_h];
+                style::card(&mut ui, mods, color::CARD);
+                let fixed =
+                    self.catalog.bundled_enabled.len() + crate::catalog::built_native_mods().len();
+                let sandboxed = self
+                    .catalog
+                    .local
+                    .iter()
+                    .filter(|e| e.kind == horizon_client::content_files::Kind::Mods && e.enabled)
+                    .count();
                 ui.text(
                     Face::Medium,
-                    19.0,
-                    32.0,
-                    h - 90.0,
+                    18.0,
+                    px + 16.0,
+                    mods[1] + 14.0,
                     color::TEXT,
-                    progress.stage.label(),
+                    "Mods",
                 );
+                let summary = ui.fit_text(
+                    Face::Regular,
+                    13.0,
+                    &format!("{fixed} native  ·  {sandboxed} .hmod enabled"),
+                    pw - 32.0,
+                );
+                ui.text(
+                    Face::Regular,
+                    13.0,
+                    px + 16.0,
+                    mods[1] + 46.0,
+                    color::MUTED,
+                    &summary,
+                );
+                self.targets.push((mods, Action::Page(Page::Installed)));
+            }
+            let launch = [px, py + ph - launch_h, pw, launch_h];
+            if installing {
+                style::card(&mut ui, launch, color::CARD);
+                let label = ui.fit_text(Face::Medium, 16.0, progress.stage.label(), pw - 32.0);
+                ui.text(
+                    Face::Medium,
+                    16.0,
+                    px + 16.0,
+                    launch[1] + 12.0,
+                    color::TEXT,
+                    &label,
+                );
+                ui.rounded(
+                    px + 16.0,
+                    launch[1] + 48.0,
+                    pw - 32.0,
+                    6.0,
+                    3.0,
+                    color::HOVER,
+                );
+                if overall > 0.0 {
+                    ui.rounded(
+                        px + 16.0,
+                        launch[1] + 48.0,
+                        (pw - 32.0) * overall,
+                        6.0,
+                        3.0,
+                        color::ACCENT,
+                    );
+                }
             } else {
-                button(
-                    &mut ui,
-                    &mut self.targets,
-                    [32.0, h - 100.0, 320.0, 60.0],
-                    if installed {
-                        "Play"
-                    } else if self.error.is_some() {
-                        "Retry installation"
-                    } else {
-                        "Download Minecraft 26.3"
-                    },
-                    Action::Play,
-                    true,
+                ui.rounded(px, launch[1], pw, launch_h, 20.0, color::ACCENT);
+                let label = if installed {
+                    "Launch"
+                } else if self.error.is_some() {
+                    "Retry installation"
+                } else {
+                    "Download Minecraft 26.3"
+                };
+                let size = if installed { 24.0 } else { 18.0 };
+                let label = ui.fit_text(Face::SemiBold, size, label, pw - 32.0);
+                let lw = ui.measure(Face::SemiBold, size, &label);
+                ui.text(
+                    Face::SemiBold,
+                    size,
+                    px + (pw - lw) / 2.0,
+                    launch[1] + (launch_h - size * 1.45) / 2.0,
+                    color::ON_ACCENT,
+                    &label,
                 );
+                self.targets.push((launch, Action::Play));
             }
         } else if page.is_catalog() {
             ui.text(
@@ -462,7 +611,7 @@ impl Launcher {
                 &format!(
                     "{}{}",
                     if page == Page::Mods {
-                        "Search / .hmod URL: "
+                        "Search / mod URL: "
                     } else {
                         "Search: "
                     },
@@ -476,7 +625,7 @@ impl Launcher {
                 &mut self.targets,
                 [w - 190.0, 174.0, 158.0, 44.0],
                 if page == Page::Mods && self.catalog.query.trim().starts_with("https://") {
-                    "Import .hmod"
+                    "Import mod"
                 } else {
                     "Search"
                 },
@@ -506,7 +655,7 @@ impl Launcher {
                         self.catalog.config.shader_source
                     }) == origin
                     {
-                        ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT);
+                        ui.border(rect[0], rect[1], rect[2], rect[3], 16.0, color::ACCENT);
                     }
                 }
             }
@@ -517,7 +666,9 @@ impl Launcher {
                 {
                     "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
                 }
-                Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
+                Page::Mods => {
+                    "Search Horizon mods, paste an HTTPS .hmod/.hnmod link or import a file"
+                }
                 Page::Shaders
                     if self.catalog.config.shader_source
                         == crate::shader_catalog::Origin::Modrinth =>
@@ -594,6 +745,7 @@ impl Launcher {
                 if y < top - 1.0 || y + 68.0 > bottom {
                     continue;
                 }
+                style::card(&mut ui, [16.0, y - 8.0, w - 32.0, 66.0], color::CARD);
                 let title = ui.fit_text(Face::Medium, 19.0, title, w - 214.0);
                 let summary = ui.fit_text(Face::Regular, 14.0, description, w - 214.0);
                 ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
@@ -615,7 +767,6 @@ impl Launcher {
                 let y = top + (row + bundled.len()) as f32 * 78.0 - self.catalog.scroll;
                 let download = self.catalog.download_label(p);
                 if download.is_none()
-                    && !crate::catalog::source_only_mod(p)
                     && !(p.kind == crate::browser::Kind::Mod
                         && p.source == crate::browser::SourceId::Modrinth)
                 {
@@ -625,10 +776,17 @@ impl Launcher {
                 if y < top || y + 70.0 > bottom {
                     continue;
                 }
+                style::card(&mut ui, [16.0, y - 8.0, w - 32.0, 66.0], color::CARD);
                 let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - 214.0);
                 let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 214.0);
                 ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
                 ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
+                if crate::catalog::source_only_mod(p) {
+                    let x = 40.0 + ui.measure(Face::Medium, 19.0, &title);
+                    if x + 70.0 < w - 160.0 {
+                        style::badge(&mut ui, x, y, ".hnmod", color::RAISED, color::MUTED);
+                    }
+                }
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
                 } else if p.kind == crate::browser::Kind::Mod
@@ -642,16 +800,9 @@ impl Launcher {
                         color::MUTED,
                         "Java mod",
                     );
-                } else if crate::catalog::source_only_mod(p) {
-                    ui.text(
-                        Face::Regular,
-                        14.0,
-                        w - 150.0,
-                        y + 12.0,
-                        color::MUTED,
-                        ".hnmod: later",
-                    );
-                } else if p.kind == crate::browser::Kind::Mod && !cfg!(target_pointer_width = "64")
+                } else if p.kind == crate::browser::Kind::Mod
+                    && !crate::catalog::source_only_mod(p)
+                    && !cfg!(target_pointer_width = "64")
                 {
                     ui.text(
                         Face::Regular,
@@ -772,6 +923,11 @@ impl Launcher {
                     if y < top || y + row_height - 4.0 > bottom {
                         continue;
                     }
+                    style::card(
+                        &mut ui,
+                        [16.0, y - 6.0, w - 32.0, row_height - 8.0],
+                        color::CARD,
+                    );
                     let title = ui.fit_text(
                         Face::Medium,
                         19.0,
@@ -779,15 +935,33 @@ impl Launcher {
                         if compact { w - 64.0 } else { w - 364.0 },
                     );
                     ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
-                    ui.text(
+                    let detail = match &item.native {
+                        Some(status) if status.plays() => "Native mod / plays in this APK",
+                        Some(horizon_client::content_files::NativeStatus::Bundled) => {
+                            "Native mod / this APK's fixed copy plays instead"
+                        }
+                        Some(_) => "Native mod / build an APK with it",
+                        None => kind.label(),
+                    };
+                    let detail = ui.fit_text(
                         Face::Regular,
                         14.0,
-                        32.0,
-                        y + 28.0,
-                        color::MUTED,
-                        kind.label(),
+                        detail,
+                        if compact { w - 64.0 } else { w - 364.0 },
                     );
-                    if kind == Kind::Mods && !cfg!(target_pointer_width = "64") {
+                    ui.text(Face::Regular, 14.0, 32.0, y + 28.0, color::MUTED, &detail);
+                    if let Some(status) = &item.native {
+                        let (fill, ink) = style::native_badge(status);
+                        let label = ui.fit_text(Face::Medium, 13.0, &status.label(), 110.0);
+                        style::badge(
+                            &mut ui,
+                            if compact { 32.0 } else { w - 300.0 },
+                            y + if compact { 62.0 } else { 7.0 },
+                            &label,
+                            fill,
+                            ink,
+                        );
+                    } else if kind == Kind::Mods && !cfg!(target_pointer_width = "64") {
                         ui.text(
                             Face::Regular,
                             14.0,
@@ -1089,6 +1263,22 @@ impl Launcher {
             Action::Repository,
             false,
         );
+        // Back to the whole screen: the panel's touch rectangles move with it.
+        ui.origin = (0.0, 0.0);
+        ui.w = sw;
+        ui.h = sh;
+        for (rect, _) in self.targets[first_target..]
+            .iter_mut()
+            .chain(self.list_targets.iter_mut())
+        {
+            rect[0] += left;
+            rect[1] -= SHIFT;
+        }
+        if let Some(view) = &mut self.list_view {
+            view[0] -= SHIFT;
+            view[1] -= SHIFT;
+        }
+        let (w, h) = (sw, sh);
         if self.login.visible {
             self.list_targets.clear();
             self.list_view = None;
@@ -1153,7 +1343,7 @@ impl Launcher {
             let width = (w - 32.0).min(360.0);
             let x = (w - width) * 0.5;
             let y = (h - 160.0) * 0.5;
-            ui.rounded(x, y, width, 160.0, 8.0, color::RAISED);
+            ui.rounded(x, y, width, 160.0, 24.0, color::RAISED);
             ui.text(
                 Face::Medium,
                 22.0,
@@ -1186,7 +1376,14 @@ impl Launcher {
         if let Some(index) = self.focus
             && let Some(([x, y, w, h], _)) = self.targets.get(index)
         {
-            ui.border(*x - 2.0, *y - 2.0, *w + 4.0, *h + 4.0, 2.0, color::TEXT);
+            ui.border(
+                *x - 2.0,
+                *y - 2.0,
+                *w + 4.0,
+                *h + 4.0,
+                (*h / 2.0 + 2.0).min(18.0),
+                color::ACCENT,
+            );
             self.cursor = (
                 f64::from((x + w / 2.0) * ui.density),
                 f64::from((y + h / 2.0) * ui.density),
@@ -1208,8 +1405,8 @@ impl Launcher {
                     *y,
                     *w,
                     *h,
-                    2.0,
-                    horizon_client::hud::rgba(255, 255, 255, 48),
+                    (*h / 2.0).min(16.0),
+                    horizon_client::hud::rgba(255, 255, 255, 36),
                 );
             }
         }
@@ -1224,8 +1421,8 @@ impl Launcher {
                 *y,
                 *w,
                 *h,
-                2.0,
-                horizon_client::hud::rgba(255, 255, 255, 48),
+                (*h / 2.0).min(16.0),
+                horizon_client::hud::rgba(255, 255, 255, 36),
             );
         }
         crate::documents::draw_ui(&mut ui);
@@ -1388,6 +1585,7 @@ impl Launcher {
                 crate::platform::hide();
                 let folder = match kind {
                     horizon_client::content_files::Kind::Mods => "mods",
+                    horizon_client::content_files::Kind::NativeMods => "native-mods",
                     horizon_client::content_files::Kind::Packs => "packs",
                     horizon_client::content_files::Kind::Shaders => "shaders",
                 };

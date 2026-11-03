@@ -8,14 +8,19 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Mods,
+    /// Source-only native mixin bundles (`.hnmod`). They are kept, never run:
+    /// a native mod plays only in a build compiled with it.
+    NativeMods,
     Packs,
     Shaders,
 }
 impl Kind {
-    pub const ALL: [Self; 3] = [Self::Mods, Self::Packs, Self::Shaders];
+    pub const ALL: [Self; 4] = [Self::Mods, Self::NativeMods, Self::Packs, Self::Shaders];
     pub fn folder(self) -> &'static str {
         match self {
             Self::Mods => "horizon-mods",
+            // The desktop launcher's instance folder for registry `.hnmod`s.
+            Self::NativeMods => "horizon-native-mods",
             Self::Packs => "resourcepacks",
             Self::Shaders => "shaderpacks",
         }
@@ -23,6 +28,7 @@ impl Kind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Mods => "Mods",
+            Self::NativeMods => "Native Mods",
             Self::Packs => "Resource Packs",
             Self::Shaders => "Shaders",
         }
@@ -31,10 +37,95 @@ impl Kind {
         let lower = name.to_ascii_lowercase();
         match self {
             Self::Mods => lower.ends_with(".hmod"),
+            Self::NativeMods => lower.ends_with(".hnmod"),
             Self::Packs => lower.ends_with(".zip"),
             Self::Shaders => lower.ends_with(".zip") || lower.ends_with(".hshader"),
         }
     }
+}
+
+/// What this build can do with a native mod (`.hnmod`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeStatus {
+    /// Compiled into this build at this version: it plays.
+    BuiltIn,
+    /// Compiled into this build at another version.
+    OtherVersion(String),
+    /// The fixed Android copy of this id is compiled in; the file is kept but unused.
+    Bundled,
+    /// Plays only in a build compiled with it.
+    NeedsBuild,
+    /// Made for another game, or for hook points this source does not have.
+    Incompatible(String),
+}
+impl NativeStatus {
+    pub fn label(&self) -> String {
+        match self {
+            Self::BuiltIn => "Built in".into(),
+            Self::OtherVersion(v) => format!("Build has {v}"),
+            Self::Bundled => "Bundled copy".into(),
+            Self::NeedsBuild => "Needs build".into(),
+            Self::Incompatible(why) => why.clone(),
+        }
+    }
+    pub fn plays(&self) -> bool {
+        matches!(self, Self::BuiltIn)
+    }
+}
+
+/// The manifest of the native mod at `path`, read alone (listing, not importing).
+pub fn native_manifest(path: &Path) -> Result<horizon_mods::index::native::Manifest, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let entry = zip
+        .by_name(horizon_mods::index::native::MANIFEST)
+        .map_err(|_| "missing horizon-native.json".to_string())?;
+    let mut bytes = Vec::new();
+    entry
+        .take(64 << 10)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    let manifest: horizon_mods::index::native::Manifest =
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    manifest.check()?;
+    Ok(manifest)
+}
+
+/// The native mods a build was compiled with: `id@version` entries separated by commas
+/// (`HORIZON_ANDROID_NATIVE_MODS`, set by `tools/android_native_mods.py`).
+pub fn built_native_mods(list: &str) -> Vec<(&str, &str)> {
+    list.split(',')
+        .filter_map(|e| e.trim().split_once('@'))
+        .filter(|(id, version)| !id.is_empty() && !version.is_empty())
+        .collect()
+}
+
+/// Whether `manifest` plays in a build of `game` whose native hook points are version `hooks`,
+/// compiled with the native mods `built` and the fixed Android mods `bundled`.
+pub fn native_status(
+    manifest: &horizon_mods::index::native::Manifest,
+    built: &[(&str, &str)],
+    bundled: &[&str],
+    game: &str,
+    hooks: u32,
+) -> NativeStatus {
+    if let Some((_, version)) = built.iter().find(|(id, _)| *id == manifest.id) {
+        return if *version == manifest.version {
+            NativeStatus::BuiltIn
+        } else {
+            NativeStatus::OtherVersion((*version).to_owned())
+        };
+    }
+    if bundled.contains(&manifest.id.as_str()) {
+        return NativeStatus::Bundled;
+    }
+    if manifest.game != game {
+        return NativeStatus::Incompatible(format!("For Minecraft {}", manifest.game));
+    }
+    if manifest.hooks.is_some_and(|needed| needed > hooks) {
+        return NativeStatus::Incompatible("Needs newer Horizon".into());
+    }
+    NativeStatus::NeedsBuild
 }
 pub const MAX_INPUT: u64 = 256 << 20;
 const MAX_EXPANDED: u64 = 512 << 20;
@@ -58,13 +149,23 @@ pub fn validate(
 ) -> crate::Result<bool> {
     if !plain_name(name) || !kind.accepts(name) {
         return Err(
-            "Choose a ZIP pack, .hshader shader pack or sandboxed .hmod matching this folder"
+            "Choose a ZIP pack, .hshader shader pack, sandboxed .hmod or native .hnmod matching this folder"
                 .into(),
         );
     }
     let file = std::fs::File::open(path)?;
     if kind == Kind::Mods && file.metadata()?.len() > 32 << 20 {
         return Err("Horizon mod exceeds 32 MiB".into());
+    }
+    if kind == Kind::NativeMods {
+        // Rust and TOML sources for one mod id, checked as the registry checks them.
+        // Nothing in the bundle runs here.
+        let bundle = horizon_mods::index::native::Bundle::read(path)
+            .map_err(|e| format!("Invalid native mod: {e}"))?;
+        if !plain_name(&format!("{}.hnmod", bundle.manifest.id)) {
+            return Err("Native mod has an invalid ID".into());
+        }
+        return Ok(false);
     }
     if file.metadata()?.len() > MAX_INPUT {
         return Err("Import exceeds 256 MiB".into());
@@ -149,6 +250,7 @@ pub fn validate(
         Kind::Packs => pack,
         Kind::Shaders => shader,
         Kind::Mods => manifest,
+        Kind::NativeMods => true,
     } {
         return Err(format!(
             "Archive is not a {} package (required files must be at the ZIP root)",
@@ -267,6 +369,102 @@ mod tests {
         std::fs::write(&path, writer.finish().unwrap().into_inner()).unwrap();
         assert!(validate(&path, Kind::Packs, "Test.zip", || false).is_err());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+    const REV: &str = "0123456789abcdef0123456789abcdef01234567";
+    fn native(id: &str, extra: &[(&str, &[u8])]) -> Vec<u8> {
+        let manifest = format!(
+            r#"{{"schema":1,"id":"{id}","version":"1.0.0","game":"26.3","horizon":"{REV}","mixins":"{REV}","hooks":1}}"#
+        );
+        let mixin = format!(
+            "[mod]\nid = \"{id}\"\nversion = \"1.0.0\"\n[compatibility]\nhorizon_revision = \"{REV}\"\n"
+        );
+        let toml = format!("mixins/{id}/horizon-mixin.toml");
+        let mut entries: Vec<(&str, &[u8])> = vec![
+            ("horizon-native.json", manifest.as_bytes()),
+            (&toml, mixin.as_bytes()),
+        ];
+        entries.extend_from_slice(extra);
+        archive(&entries)
+    }
+    #[test]
+    fn native_mods_are_checked_without_running_them() {
+        let dir = std::env::temp_dir().join(format!(
+            "horizon-native-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("stage.part");
+        std::fs::write(
+            &path,
+            native("peek", &[("mixins/peek/hook.rs", b"fn hook() {}")]),
+        )
+        .unwrap();
+        assert_eq!(
+            validate(&path, Kind::NativeMods, "peek-1.0.0.hnmod", || false).unwrap(),
+            false
+        );
+        // The wrong folder or extension, a script beside the sources, another mod's files.
+        assert!(validate(&path, Kind::NativeMods, "peek.zip", || false).is_err());
+        assert!(validate(&path, Kind::Mods, "peek.hnmod", || false).is_err());
+        for extra in ["mixins/peek/build.sh", "mixins/other/hook.rs", "../hook.rs"] {
+            std::fs::write(&path, native("peek", &[(extra, b"echo")])).unwrap();
+            assert!(
+                validate(&path, Kind::NativeMods, "peek.hnmod", || false).is_err(),
+                "{extra}"
+            );
+        }
+        std::fs::write(&path, archive(&[("horizon-native.json", b"{}")])).unwrap();
+        assert!(validate(&path, Kind::NativeMods, "peek.hnmod", || false).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn native_status_says_whether_this_build_plays_it() {
+        let manifest =
+            |id: &str, game: &str, hooks: Option<u32>| horizon_mods::index::native::Manifest {
+                schema: 1,
+                id: id.into(),
+                version: "1.0.0".into(),
+                game: game.into(),
+                horizon: REV.into(),
+                mixins: REV.into(),
+                hooks,
+            };
+        let built = built_native_mods(" peek@1.0.0, ,broken,zoom@2.0.0,@1");
+        assert_eq!(built, [("peek", "1.0.0"), ("zoom", "2.0.0")]);
+        let status = |m| native_status(&m, &built, &["minimap"], "26.3", 80);
+        assert_eq!(
+            status(manifest("peek", "26.3", Some(1))),
+            NativeStatus::BuiltIn
+        );
+        assert_eq!(
+            status(manifest("zoom", "26.3", Some(1))),
+            NativeStatus::OtherVersion("2.0.0".into())
+        );
+        assert_eq!(
+            status(manifest("minimap", "26.3", None)),
+            NativeStatus::Bundled
+        );
+        assert_eq!(
+            status(manifest("sort", "26.3", Some(80))),
+            NativeStatus::NeedsBuild
+        );
+        assert_eq!(
+            status(manifest("sort", "26.3", None)),
+            NativeStatus::NeedsBuild
+        );
+        assert!(matches!(
+            status(manifest("sort", "26.3", Some(81))),
+            NativeStatus::Incompatible(_)
+        ));
+        assert!(matches!(
+            status(manifest("sort", "26.2", Some(1))),
+            NativeStatus::Incompatible(_)
+        ));
+        assert!(NativeStatus::BuiltIn.plays() && !NativeStatus::NeedsBuild.plays());
     }
     #[test]
     fn streamed_copy_is_bounded_and_cancellable() {

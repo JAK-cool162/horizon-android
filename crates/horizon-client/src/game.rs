@@ -206,6 +206,9 @@ mod native_hooks;
 use android_bundled::{
     official_minimap, official_recipes, official_recipes_glue, official_zoom, smartf3,
 };
+/// The launcher says which `.hnmod`s this APK's hook points can build.
+#[cfg(target_os = "android")]
+pub(crate) use native_hooks::NATIVE_HOOKS_API;
 mod native_lifecycle;
 mod native_menus;
 mod native_mobs;

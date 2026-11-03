@@ -301,6 +301,8 @@ pub struct Ui<'a> {
     pub cursor: (f32, f32),
     /// Physical pixels per dp.
     pub density: f32,
+    /// Where dp (0, 0) is drawn, in dp: a panel lays itself out from its own corner.
+    pub origin: (f32, f32),
     scale: f32,
 }
 impl<'a> Ui<'a> {
@@ -315,6 +317,7 @@ impl<'a> Ui<'a> {
             h: ph / density,
             cursor: (cursor.0 * scale / density, cursor.1 * scale / density),
             density,
+            origin: (0.0, 0.0),
             scale,
             batch,
         }
@@ -366,10 +369,10 @@ impl<'a> Ui<'a> {
 
     // ---- geometry, snapped to physical pixels ----
     fn px_x(&self, v: f32) -> f32 {
-        (v * self.density).round()
+        ((v + self.origin.0) * self.density).round()
     }
     fn px_y(&self, v: f32) -> f32 {
-        (v * self.density).round()
+        ((v + self.origin.1) * self.density).round()
     }
     fn raw_fill(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: u32) {
         if x1 > x0 && y1 > y0 {

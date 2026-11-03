@@ -1,7 +1,8 @@
 //! Native account panel; authentication is shared with the desktop launcher.
 use super::pages::{Action, button};
 use crate::account::{self, Account, Accounts, Secrets, SignIn, SignInState};
-use horizon_client::ui_theme::{Face, Ui, color};
+use crate::launcher_style::color;
+use horizon_client::ui_theme::{Face, Ui};
 
 pub(super) struct Login {
     pub visible: bool,

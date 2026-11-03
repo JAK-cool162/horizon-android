@@ -181,7 +181,7 @@ enum Reply {
 pub struct Catalog {
     pub local: Vec<LocalItem>,
     pub bundled_enabled: std::collections::BTreeSet<String>,
-    pub sections: [bool; 3],
+    pub sections: [bool; 4],
     pub pending_delete: Option<LocalItem>,
     downloaded: Vec<(browser::SourceId, String)>,
     downloading: Option<(browser::SourceId, String)>,
@@ -206,6 +206,32 @@ pub struct LocalItem {
     pub file: String,
     pub title: String,
     pub enabled: bool,
+    /// A native mod's place in this build; `None` for other kinds.
+    pub native: Option<horizon_client::content_files::NativeStatus>,
+}
+
+/// The native mods compiled into this APK (`tools/android_native_mods.py`), `id@version,...`.
+pub fn built_native_mods() -> Vec<(&'static str, &'static str)> {
+    horizon_client::content_files::built_native_mods(
+        option_env!("HORIZON_ANDROID_NATIVE_MODS").unwrap_or(""),
+    )
+}
+
+/// What this APK does with the native mod `manifest`.
+pub fn native_status(
+    manifest: &horizon_mods::index::native::Manifest,
+) -> horizon_client::content_files::NativeStatus {
+    let bundled: Vec<&str> = horizon_client::mod_list::ANDROID_BUNDLED
+        .iter()
+        .map(|(id, _, _)| *id)
+        .collect();
+    horizon_client::content_files::native_status(
+        manifest,
+        &built_native_mods(),
+        &bundled,
+        horizon_core::version::VERSION_ID,
+        crate::game::NATIVE_HOOKS_API,
+    )
 }
 impl Catalog {
     pub fn new(home: &Path) -> Self {
@@ -213,7 +239,7 @@ impl Catalog {
         let mut result = Self {
             local: vec![],
             bundled_enabled: Default::default(),
-            sections: [false, false, false],
+            sections: [false; 4],
             pending_delete: None,
             downloaded: vec![],
             downloading: None,
@@ -240,7 +266,7 @@ impl Catalog {
         self.page = Page::Installed;
         self.scroll = 0.0;
         self.editing = None;
-        self.sections = [false; 3];
+        self.sections = [false; 4];
         if let Some(i) = horizon_client::content_files::Kind::ALL
             .iter()
             .position(|k| Some(*k) == kind)
@@ -274,7 +300,26 @@ impl Catalog {
                 if !horizon_client::content_files::plain_name(&name) || !kind.accepts(&name) {
                     continue;
                 }
+                let mut native = None;
+                let mut title = name.clone();
                 let enabled = match kind {
+                    horizon_client::content_files::Kind::NativeMods => {
+                        let status =
+                            match horizon_client::content_files::native_manifest(&entry.path()) {
+                                Ok(manifest) => {
+                                    title = format!("{} {}", manifest.id, manifest.version);
+                                    native_status(&manifest)
+                                }
+                                Err(_) => {
+                                    horizon_client::content_files::NativeStatus::Incompatible(
+                                        "Invalid .hnmod".into(),
+                                    )
+                                }
+                            };
+                        let plays = status.plays();
+                        native = Some(status);
+                        plays
+                    }
                     horizon_client::content_files::Kind::Packs => {
                         settings.resource_packs.contains(&format!("file/{name}"))
                     }
@@ -287,9 +332,10 @@ impl Catalog {
                 };
                 self.local.push(LocalItem {
                     kind,
-                    file: name.clone(),
-                    title: name,
+                    file: name,
+                    title,
                     enabled,
+                    native,
                 });
             }
         }
@@ -315,8 +361,10 @@ impl Catalog {
             .any(|(source, id)| *source == project.source && *id == project.id)
             || (project.kind == Kind::Mod
                 && self.local.iter().any(|item| {
-                    item.kind == horizon_client::content_files::Kind::Mods
-                        && item.file == format!("{}.hmod", project.id)
+                    (item.kind == horizon_client::content_files::Kind::Mods
+                        && item.file == format!("{}.hmod", project.id))
+                        || (item.kind == horizon_client::content_files::Kind::NativeMods
+                            && item.file == format!("{}.hnmod", project.id))
                 }))
         {
             return Some("Installed".into());
@@ -330,6 +378,8 @@ impl Catalog {
             .is_some_and(|(source, id)| *source == project.source && *id == project.id)
         {
             "Retry"
+        } else if source_only_mod(project) {
+            "Download"
         } else {
             "Install"
         }
@@ -442,7 +492,7 @@ impl Catalog {
         } else if self.page == Page::Mods {
             let native = items.iter().filter(|p| source_only_mod(p)).count();
             format!(
-                "{} .hmod / {} source-only .hnmod (not supported yet)",
+                "{} .hmod / {} native .hnmod (download, then build an APK with it)",
                 items.len() - native,
                 native
             )
@@ -486,34 +536,79 @@ impl Catalog {
             let _ = tx.send(result);
         });
     }
+    /// Downloads the sandboxed `.hmod` or native `.hnmod` at the HTTPS link in the search field.
     pub fn import_native(&mut self, home: &Path) {
         let url = self.query.trim().to_owned();
         let game = self.config.game_home(home);
-        self.job("Downloading sandboxed .hmod over HTTPS...",move||{
+        self.job("Downloading mod over HTTPS...", move || {
+            use horizon_client::content_files::Kind as Folder;
             use std::io::Read;
-            let mut bytes=Vec::new();
-            ureq::AgentBuilder::new().https_only(true).timeout_connect(std::time::Duration::from_secs(20)).timeout_read(std::time::Duration::from_secs(90)).build().get(&url).call().map_err(|e|e.to_string())?.into_reader().take(32*1024*1024+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
-            if bytes.len()>32*1024*1024 {return Err("Horizon mod exceeds 32 MiB".into());}
-            let dir=game.join("horizon-mods");std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
-            let stage=dir.join("import.partial");std::fs::write(&stage,bytes).map_err(|e|e.to_string())?;
-            let result=(||{
-                let package=horizon_mods::Package::read(&stage)?;
-                let destination=dir.join(format!("{}.hmod",package.manifest.id));
-                if destination.exists(){std::fs::copy(&destination,destination.with_extension("hmod.previous")).map_err(|e|e.to_string())?;}
-                std::fs::rename(&stage,destination).map_err(|e|e.to_string())?;
-                Ok(Reply::Done(format!("Installed {}. Enable it in Installed after reviewing its capabilities in game Mods.",package.manifest.name), horizon_client::content_files::Kind::Mods))
+            let mut bytes = Vec::new();
+            ureq::AgentBuilder::new()
+                .https_only(true)
+                .timeout_connect(std::time::Duration::from_secs(20))
+                .timeout_read(std::time::Duration::from_secs(90))
+                .build()
+                .get(&url)
+                .call()
+                .map_err(|e| e.to_string())?
+                .into_reader()
+                .take(64 * 1024 * 1024 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            if bytes.len() > 64 * 1024 * 1024 {
+                return Err("Mod download exceeds 64 MiB".into());
+            }
+            // A native bundle carries horizon-native.json; anything else must be a .hmod.
+            let native = zip::ZipArchive::new(std::io::Cursor::new(&bytes))
+                .is_ok_and(|zip| zip.index_for_name(horizon_mods::index::native::MANIFEST).is_some());
+            if !native && bytes.len() > 32 * 1024 * 1024 {
+                return Err("Horizon mod exceeds 32 MiB".into());
+            }
+            let folder = if native { Folder::NativeMods } else { Folder::Mods };
+            let dir = game.join(folder.folder());
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err("Refusing a redirected content directory".into());
+            }
+            let stage = dir.join("import.partial");
+            std::fs::write(&stage, bytes).map_err(|e| e.to_string())?;
+            let result = (|| {
+                let (id, name, ext) = if native {
+                    let bundle = horizon_mods::index::native::Bundle::read(&stage)
+                        .map_err(|e| format!("Invalid native mod: {e}"))?;
+                    let m = bundle.manifest;
+                    (m.id.clone(), format!("{} {}", m.id, m.version), "hnmod")
+                } else {
+                    let package = horizon_mods::Package::read(&stage)?;
+                    (package.manifest.id, package.manifest.name, "hmod")
+                };
+                let destination = dir.join(format!("{id}.{ext}"));
+                if !horizon_client::content_files::plain_name(&format!("{id}.{ext}")) {
+                    return Err("Mod has an invalid ID".to_string());
+                }
+                if destination.exists() {
+                    std::fs::copy(&destination, destination.with_extension(format!("{ext}.previous")))
+                        .map_err(|e| e.to_string())?;
+                }
+                std::fs::rename(&stage, destination).map_err(|e| e.to_string())?;
+                Ok(Reply::Done(
+                    if native {
+                        format!("Installed {name}. It plays in an APK built with it (Installed > Native Mods).")
+                    } else {
+                        format!("Installed {name}. Enable it in Installed after reviewing its capabilities in game Mods.")
+                    },
+                    folder,
+                ))
             })();
-            let _=std::fs::remove_file(stage);result
+            let _ = std::fs::remove_file(stage);
+            result
         });
     }
     pub fn install(&mut self, home: &Path, index: usize) {
         let Some(project) = self.results.get(index).cloned() else {
             return;
         };
-        if source_only_mod(&project) {
-            self.status = "This .hnmod needs a separately compiled client. Android support is planned; sandboxed .hmod mods can be installed now.".into();
-            return;
-        }
         if self.busy() || self.download_label(&project).is_some() {
             return;
         }
@@ -527,9 +622,11 @@ impl Catalog {
             && !(cfg!(target_pointer_width = "64")
                 && project.kind == Kind::Mod
                 && project.source == browser::SourceId::Horizon)
+            && !source_only_mod(&project)
         {
             return;
         }
+        let native = source_only_mod(&project);
         self.downloading = Some((project.source, project.id.clone()));
         self.failed = None;
         *self.progress.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
@@ -560,8 +657,13 @@ impl Catalog {
                 .len()
             };
             Ok(Reply::Done(
-                format!("Installed {count} item(s). Open Play to load this profile."),
+                if native {
+                    format!("Downloaded {}. It plays in an APK built with it (Installed > Native Mods).", project.title)
+                } else {
+                    format!("Installed {count} item(s). Open Play to load this profile.")
+                },
                 match project.kind {
+                    Kind::Mod if native => horizon_client::content_files::Kind::NativeMods,
                     Kind::Mod => horizon_client::content_files::Kind::Mods,
                     Kind::Shader => horizon_client::content_files::Kind::Shaders,
                     _ => horizon_client::content_files::Kind::Packs,
@@ -577,6 +679,18 @@ impl Catalog {
         let path = game.join("options.txt");
         let mut settings = horizon_client::settings::Settings::load(&path);
         match item.kind {
+            horizon_client::content_files::Kind::NativeMods => {
+                self.status = match &item.native {
+                    Some(status) if status.plays() => {
+                        "Native mods are always on in the build compiled with them".into()
+                    }
+                    _ => {
+                        "This .hnmod plays in an APK built with it: see docs/android-native-mods.md"
+                            .into()
+                    }
+                };
+                return;
+            }
             horizon_client::content_files::Kind::Mods => {
                 if !cfg!(target_pointer_width = "64") {
                     self.status = "Sandboxed code mods require a 64-bit APK".into();

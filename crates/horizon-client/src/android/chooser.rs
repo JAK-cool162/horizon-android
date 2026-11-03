@@ -4,7 +4,8 @@ use super::{
     pages::{Action, button},
 };
 use crate::catalog::RendererMode;
-use horizon_client::ui_theme::{Face, Ui, color};
+use crate::launcher_style::color;
+use horizon_client::ui_theme::{Face, Ui};
 
 pub(super) enum Kind {
     Aspect,

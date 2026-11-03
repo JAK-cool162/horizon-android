@@ -1,9 +1,10 @@
 //! SAF selection, bounded background imports and explicit collision choices.
+use crate::launcher_style::color;
 use horizon_client::{
     Result,
     content_files::{self, Kind},
     hud::{HudAtlas, HudBatch, rgba},
-    ui_theme::{Face, Ui, color},
+    ui_theme::{Face, Ui},
 };
 use jni::{
     JNIEnv,
@@ -175,6 +176,8 @@ pub extern "system" fn document_result(
                 let mut env = vm.attach_current_thread()?;
                 let fallback = if pending.kind == Kind::Mods {
                     "import.hmod"
+                } else if pending.kind == Kind::NativeMods {
+                    "import.hnmod"
                 } else {
                     "import.zip"
                 };
@@ -196,7 +199,11 @@ pub extern "system" fn document_result(
         notice(format!("Import failed: {error}"), false);
     }
 }
-fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()> {
+fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result<()> {
+    // Mods' Import takes both kinds of mod: a native bundle goes to its own folder.
+    if request.kind == Kind::Mods && Kind::NativeMods.accepts(&name) {
+        request.kind = Kind::NativeMods;
+    }
     if !content_files::plain_name(&name) || !request.kind.accepts(&name) {
         return Err("Selected file has the wrong extension for this folder".into());
     }
@@ -240,6 +247,8 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
         })?;
         let name = if request.kind == Kind::Mods {
             format!("{}.hmod", horizon_mods::Package::read(&staged)?.manifest.id)
+        } else if request.kind == Kind::NativeMods {
+            format!("{}.hnmod", content_files::native_manifest(&staged)?.id)
         } else if native_shader || name.to_ascii_lowercase().ends_with(".hshader") {
             let pack = horizon_shader_api::Pack::read(&staged)?;
             horizon_shader_api::check(&pack).map_err(|e| format!("Invalid shader pack: {e:?}"))?;
@@ -270,9 +279,14 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
             std::fs::rename(&staged, &target)?;
             imported(
                 format!(
-                    "Imported {} into {}. Enable it in game settings.",
+                    "Imported {} into {}. {}",
                     target.file_name().unwrap_or_default().to_string_lossy(),
-                    request.kind.label()
+                    request.kind.label(),
+                    if request.kind == Kind::NativeMods {
+                        "It plays in an APK built with it."
+                    } else {
+                        "Enable it in game settings."
+                    }
                 ),
                 request.kind,
             );
@@ -306,7 +320,7 @@ pub fn resolve(choice: Choice) {
             return Err("Cannot replace a folder or symbolic link".into());
         }
         if matches!(choice, Choice::KeepBoth) {
-            if c.kind == Kind::Mods {
+            if matches!(c.kind, Kind::Mods | Kind::NativeMods) {
                 return Err(
                     "A mod ID cannot be installed twice; choose Replace to update it".into(),
                 );
@@ -406,7 +420,7 @@ pub fn draw_ui(ui: &mut Ui<'_>) {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned(),
-            if c.kind == Kind::Mods {
+            if matches!(c.kind, Kind::Mods | Kind::NativeMods) {
                 vec![("Replace", Choice::Replace), ("Cancel", Choice::Cancel)]
             } else {
                 vec![
@@ -517,7 +531,7 @@ pub fn handle_event(event: &winit::event::WindowEvent) -> bool {
                         .unwrap_or_else(|e| e.into_inner())
                         .conflict
                         .as_ref()
-                        .is_some_and(|c| c.kind == Kind::Mods);
+                        .is_some_and(|c| matches!(c.kind, Kind::Mods | Kind::NativeMods));
                     resolve(if native {
                         Choice::Cancel
                     } else {
