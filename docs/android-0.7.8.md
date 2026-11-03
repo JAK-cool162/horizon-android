@@ -22,7 +22,8 @@ build, which the APK's fixed copy replaces (Zoom, Minimap, Recipes, SmartF3), an
 APK can hold (another game version, newer hook points, desktop-only post-build steps or
 modules).
 
-`tools/android_native_mods.py` builds an APK with native mods compiled in, and the Android
+`tools/android_native_mods.py` builds an APK with native mods compiled in, starts your own
+mod from a template (`new`) and packages it as a `.hnmod` (`pack`), and the Android
 dev workflow takes a `native_mods` input of `.hnmod` links. See
 [native mods on Android](android-native-mods.md).
 
@@ -31,6 +32,8 @@ dev workflow takes a `native_mods` input of `.hnmod` links. See
 - Android ARM64 Clippy with warnings denied passed.
 - The content/storage harness (`tools/test_android_content.py`) and the Android Python
   tests passed, including the new `.hnmod` checks and the build tool's planning.
+- The `new` template, with its two hooks applied by hand as horizon-mixins applies HEAD
+  helpers, passed ARM64 Clippy with warnings denied.
 - Not yet verified: the new layout on a device, and an APK built with a `.hnmod`
   (horizon-mixins applying a mod to this fork). Mods pinned to another Horizon commit may
   fail to apply.
