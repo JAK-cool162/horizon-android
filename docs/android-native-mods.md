@@ -1,0 +1,83 @@
+# Native mods (.hnmod) on Android
+
+A `.hnmod` is a [native mod](native-mods.md): Rust source (a horizon-mixins bundle) that
+changes the game before it is compiled. It is not a plugin, and a phone has no compiler,
+so a native mod plays only in an APK built with it. Sandboxed `.hmod` mods still install
+and run without a rebuild.
+
+## In the launcher
+
+- **Get one.** The Mods tab lists the registry's native mods with an `.hnmod` badge and a
+  **Download** button. You can also paste an HTTPS link to a `.hnmod` in the search
+  field and press **Import mod**, or use **Import file** with a `.hnmod` from your phone.
+  An imported `.hnmod` goes to Installed > Native Mods, never into the sandboxed mods.
+- **Checks.** Every `.hnmod` is checked the way the registry checks it: only Rust, TOML,
+  data and licence files for its own mod id, an exact Horizon and horizon-mixins commit,
+  and a mixin manifest that matches it. Nothing in it runs on the phone. A file with the
+  same mod id replaces the older one: **Keep both** is not offered.
+- **Status.** Each row of Installed > Native Mods says what this APK does with the mod:
+
+  | Badge | Meaning |
+  |---|---|
+  | **Built in** | This APK was compiled with this version: it plays, always on (native mods have no switch). |
+  | **Build has X** | This APK was compiled with version X of this mod. |
+  | **Needs build** | Build an APK with it (below). |
+  | **Bundled copy** | The APK's fixed Android copy (Zoom, Minimap, Recipes, SmartF3) plays instead; enable it in the Mods tab. |
+  | **For Minecraft X**, **Needs newer Horizon** | Made for another game version, or for native hook points this source does not have yet. |
+
+- **Files.** Android Files shows the profile's **Native Mods** folder
+  (`horizon-native-mods/`) next to Mods, Resource Packs and Shader Packs.
+
+## Building an APK with native mods
+
+Native mods are native code with your rights: build only mods you trust. On a computer set
+up for the [Android build](android.md#build-developers-only):
+
+```sh
+python3 tools/android_native_mods.py check shulker_peek-0.1.0.hnmod zoom-2.0.0.hnmod
+python3 tools/android_native_mods.py build shulker_peek-0.1.0.hnmod --trust-native-code \
+    --allow-version-mismatch -- --abi arm64-v8a
+```
+
+`check` reads the mods and prints what a build would do, with no trust needed. `build`:
+
+1. reads each `.hnmod` (a file, an unpacked folder or an `https://` link) as above;
+2. skips a mod whose id this APK bundles: its fixed Android copy plays instead;
+3. stops when a mod is for another Minecraft version or needs newer native hook points
+   (`hooks` in its manifest) than this source has (`NATIVE_HOOKS_API`);
+4. installs horizon-mixins at the newest of the commits the mods and the launcher name,
+   with `cargo install --locked`, into `.local/android-native/tools/`;
+5. copies this checkout (tracked and new files, never `.local/`, `target/` or `.git/`) and
+   applies the mods with `horizon-mixins apply` into `.local/android-native/stage/`;
+6. runs that copy's `tools/android_build.py` with the arguments after `--`, and
+   `HORIZON_ANDROID_NATIVE_MODS=id@version,...` so the launcher knows what it holds.
+   The build reads `.local/` (prepared resources, signing key) from this checkout, and
+   compiles into `.local/android-native/target/` unless `CARGO_TARGET_DIR` is set.
+
+The APK is written to `.local/android/apk/<abi>/`, as a normal build. Signed with the same
+key, it updates the installed app and keeps its worlds.
+
+A mod that hooks only Horizon's native hook points (its manifest has `hooks`) builds on
+any source with that hook version. Any other mod was made for one exact Horizon commit,
+and this Android fork is never that commit: `--allow-version-mismatch` builds it anyway,
+like the desktop launcher's **Build anyway**. Such mods often still apply; when one does
+not, horizon-mixins names the hook that no longer matches.
+
+`stage` applies the mods without building. With `--in-place` it then copies the modded
+files over this checkout, for a disposable CI checkout.
+
+### On GitHub Actions
+
+The **Android dev APKs** workflow has a **native_mods** input: space-separated HTTPS
+links to `.hnmod` files. A run with it compiles those mods into the dev APK
+(`stage --in-place --trust-native-code --allow-version-mismatch`). Only people who can
+run the workflow can choose mods, and the APK is signed with the dev key: give it only
+mods you trust.
+
+## Limits
+
+- No on-phone compiler and no dynamic loading: changing the mods means a new APK.
+- A mod pinned to another Horizon commit may fail to apply or to compile on this fork.
+- The fixed Android bundle wins over a `.hnmod` of the same id; to try another version of
+  Zoom, Minimap, Recipes or SmartF3, the fixed copy would have to be removed from the
+  build first.

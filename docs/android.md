@@ -34,9 +34,16 @@ dynamic slots and the separate terrain texture arrays.
 
 ## Launcher
 
+The launcher uses Material 3 surfaces: a navigation rail on the left in landscape (a
+bottom bar in portrait), an account chip in the top bar, and on **Play** a launch panel
+beside the overview with the account, the version and profile, the mods enabled and the
+**Launch** button.
+
 - **Play:** install resources and launch a world or server.
 - **Mods:** import native Horizon packages using a direct HTTPS `.hmod` URL
   on 64-bit builds. New packages are disabled until enabled in Installed.
+  Native `.hnmod` mods can be downloaded or imported too; they play in an APK built
+  with them ([native mods on Android](android-native-mods.md)).
 - **Packs:** find and install resource packs with checksum verification.
 - **Installed:** enable, disable or remove installed additions.
 - **Settings:** rendering mode, input mode, profile, server and orientation.

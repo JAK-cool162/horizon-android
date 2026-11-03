@@ -23,6 +23,10 @@ on:
         description: Also build ARMv7, x86 and x86_64
         type: boolean
         default: false
+      native_mods:
+        description: Native mods to compile in (.hnmod https:// links, space-separated; you trust their code)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -104,6 +108,14 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_android_release_audit.py'
       - name: Prepare private engine inputs from official downloads
         run: python3 tools/android_prepare.py --java-home "$JAVA_HOME"
+      - name: Compile in the chosen native mods (.hnmod)
+        if: inputs.native_mods != ''
+        env:
+          NATIVE_MODS: ${{ inputs.native_mods }}
+        run: |
+          read -ra mods <<< "$NATIVE_MODS"
+          python3 tools/android_native_mods.py stage --in-place --trust-native-code \
+            --allow-version-mismatch --github-env "$GITHUB_ENV" "${mods[@]}"
       - name: Build optimized public dev APK
         env:
           ABI: ${{ matrix.abi }}

@@ -104,4 +104,4 @@ in Installed before Play, or in the game's Shader Packs settings. It changes the
 sky and adds two post-processing passes; it is a functional example, not an
 Android performance benchmark.
 
-The Horizon catalog also lists source-only `.hnmod` mods so their availability is visible. These require rebuilding the game and cannot be installed into the current Android client; the list marks them as unsupported. `.hmod` file and HTTPS imports remain available.
+The Horizon catalog also lists source-only `.hnmod` native mods. They can be downloaded or imported (file or HTTPS link) into Installed > Native Mods, which says whether this APK was built with each one; they play only in an APK compiled with them. See [native mods on Android](android-native-mods.md). `.hmod` file and HTTPS imports work as before.
