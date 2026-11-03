@@ -12,6 +12,8 @@ mod game_launch;
 mod import_plan;
 #[path = "android/thumbnails.rs"]
 mod thumbnails;
+#[path = "android/project_page.rs"]
+mod project_page;
 #[path = "android/launcher.rs"]
 mod launcher;
 #[path = "android/launcher_style.rs"]

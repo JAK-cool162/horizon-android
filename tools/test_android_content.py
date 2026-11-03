@@ -46,6 +46,7 @@ mod osk { pub enum Output { Text(String), Backspace, Enter, Close } }
 #[path = "../../../../crates/horizon-client/src/android/sealed_box.rs"] mod sealed_box;
 #[path = "../../../../crates/horizon-client/src/android/import_plan.rs"] mod import_plan;
 #[path = "../../../../crates/horizon-client/src/android/thumbnails.rs"] mod thumbnails;
+#[path = "../../../../crates/horizon-client/src/android/project_page.rs"] mod project_page;
 #[path = "../../../../crates/horizon-client/src/android/document_store.rs"] mod document_store;
 #[path = "../../../../crates/horizon-client-render/src/graphics_startup.rs"] mod graphics_startup;
 #[path = "../../../../crates/horizon-client/src/android_resources.rs"] mod android_resources;

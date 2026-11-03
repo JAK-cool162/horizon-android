@@ -21,7 +21,11 @@ stays in the layout while its mod is off.
 The Mods, Resource packs and Shaders pages show each result's icon (fetched over HTTPS once
 per session, at most 2 MiB, four at a time), where it comes from, and how it runs here with
 the newest Minecraft version it lists: **Works**, **Partly** (an older version, or a Java
-shader pack run through the translator) or **Doesn't run** (a Java mod).
+shader pack run through the translator) or **Doesn't run** (a Java mod). Tapping a result
+opens its page: Install, its page on the source's site, the versions and loaders it lists, why
+it runs only partly, and its description (Markdown and HTML shown as plain text, fetched from
+the source when opened). Back, or the system Back gesture, returns to the list where it was.
+The lists' rows at the top and bottom edges show their visible part while scrolling.
 
 ## Importing from another Horizon app
 

@@ -12,6 +12,11 @@ pub(super) enum Action {
     Play,
     /// Start the game on its title screen with the touch layout editor open.
     Controls,
+    /// A result's page, and back to the list from it.
+    OpenProject(usize),
+    CloseProject,
+    /// The open result's page on its source, in the browser.
+    OpenProjectPage,
     Search,
     ShaderSource(crate::shader_catalog::Origin),
     ModSource(crate::shader_catalog::Origin),
@@ -75,6 +80,266 @@ pub(super) enum Action {
     PasteToken,
     ImportOtherApp,
     ImportMinecraft,
+}
+
+/// Downloads as Modrinth writes them: 950, 12.3K, 4.5M.
+fn count(n: u64) -> String {
+    match n {
+        0..1_000 => n.to_string(),
+        1_000..1_000_000 => format!("{:.1}K", n as f64 / 1e3),
+        _ => format!("{:.1}M", n as f64 / 1e6),
+    }
+}
+
+/// A result's page over the catalog list: Back, Install and its source's page on top, its icon,
+/// title and badges, then what it says about itself, scrolling.
+#[allow(clippy::too_many_arguments)]
+fn draw_project(
+    ui: &mut Ui,
+    catalog: &mut crate::catalog::Catalog,
+    targets: &mut Vec<([f32; 4], Action)>,
+    list_view: &mut Option<[f32; 3]>,
+    atlas_id: (usize, u64),
+    w: f32,
+    h: f32,
+    left: f32,
+) {
+    use crate::project_page::{self, Style};
+    let Some(view) = catalog.project.as_ref() else {
+        return;
+    };
+    let project = view.project.clone();
+    let narrow = w < 520.0;
+    button(
+        ui,
+        targets,
+        [32.0, 136.0, 104.0, 40.0],
+        "Back",
+        Action::CloseProject,
+        false,
+    );
+    // Install, as its row offers it.
+    let action_x = w - 182.0;
+    let java_mod = project.kind == crate::browser::Kind::Mod
+        && project.source == crate::browser::SourceId::Modrinth;
+    if let Some(state) = catalog.download_label(&project) {
+        ui.text(Face::Medium, 16.0, action_x, 146.0, color::TEXT, &state);
+    } else if java_mod {
+        ui.text(
+            Face::Regular,
+            14.0,
+            action_x,
+            148.0,
+            color::MUTED,
+            "Java mod",
+        );
+    } else if project.kind == crate::browser::Kind::Mod
+        && !crate::catalog::source_only_mod(&project)
+        && !cfg!(target_pointer_width = "64")
+    {
+        ui.text(
+            Face::Regular,
+            14.0,
+            action_x,
+            148.0,
+            color::MUTED,
+            "64-bit required",
+        );
+    } else if let Some(i) = catalog.project_row() {
+        button(
+            ui,
+            targets,
+            [action_x, 136.0, 150.0, 40.0],
+            catalog.install_button(&project),
+            Action::Install(i),
+            true,
+        );
+    }
+    let page = project.page.starts_with("https://");
+    if page {
+        let rect = if narrow {
+            [32.0, 286.0, w - 64.0, 40.0]
+        } else {
+            [action_x - 162.0, 136.0, 150.0, 40.0]
+        };
+        button(
+            ui,
+            targets,
+            rect,
+            "Open page",
+            Action::OpenProjectPage,
+            false,
+        );
+    }
+    // The header.
+    let sprite = project
+        .icon
+        .as_deref()
+        .filter(|url| url.starts_with("https://"))
+        .and_then(|url| catalog.thumbs.sprite(url, atlas_id));
+    match sprite {
+        Some((sprite, upload)) => {
+            let side = crate::thumbnails::SIZE;
+            ui.image(
+                &sprite,
+                upload.as_deref().map(|rgba| (rgba, side, side)),
+                32.0,
+                192.0,
+                72.0,
+                72.0,
+            );
+        }
+        None => style::avatar(ui, 32.0, 192.0, 72.0, &project.title),
+    }
+    let tx = 120.0;
+    let title = ui.fit_text(Face::SemiBold, 22.0, &project.title, w - tx - 32.0);
+    ui.text(Face::SemiBold, 22.0, tx, 186.0, color::TEXT, &title);
+    let mut facts = Vec::new();
+    if !project.author.is_empty() {
+        facts.push(format!("by {}", project.author));
+    }
+    if project.downloads > 0 {
+        facts.push(format!("{} downloads", count(project.downloads)));
+    }
+    if !project.license.is_empty() {
+        facts.push(project.license.clone());
+    }
+    let facts = ui.fit_text(Face::Regular, 14.0, &facts.join("  ·  "), w - tx - 32.0);
+    ui.text(Face::Regular, 14.0, tx, 218.0, color::MUTED, &facts);
+    let (fits, fill, ink) = crate::catalog::compatibility(&project);
+    let x = tx
+        + style::badge(
+            ui,
+            tx,
+            244.0,
+            project.source.label(),
+            color::RAISED,
+            color::MUTED,
+        );
+    style::badge(ui, x + 6.0, 244.0, &fits, fill, ink);
+    // The body: why it runs only partly, what it is for, then its description.
+    let top = if narrow && page { 340.0 } else { 290.0 };
+    let bottom = h - 24.0;
+    let width = (w - 64.0).max(120.0);
+    let view = catalog.project.as_mut().expect("checked above");
+    if view.lines.as_ref().is_none_or(|(at, _)| *at != width) {
+        let mut paragraphs = Vec::new();
+        if let Some(reason) = crate::catalog::android_support(&project).reason() {
+            paragraphs.push((Style::Text, reason.to_owned()));
+        }
+        let mut versions: Vec<&str> = project.game_versions.iter().map(String::as_str).collect();
+        versions.reverse();
+        versions.truncate(8);
+        if !versions.is_empty() {
+            paragraphs.push((Style::Text, format!("Minecraft: {}", versions.join(", "))));
+        }
+        if !project.loaders.is_empty() {
+            paragraphs.push((
+                Style::Text,
+                format!("Loaders: {}", project.loaders.join(", ")),
+            ));
+        }
+        if let Some(Ok(details)) = &view.details {
+            if !details.categories.is_empty() {
+                paragraphs.push((
+                    Style::Text,
+                    format!("Tags: {}", details.categories.join(", ")),
+                ));
+            }
+            if let Some(date) = details.updated.get(..10) {
+                paragraphs.push((Style::Text, format!("Updated {date}")));
+            }
+        }
+        paragraphs.push((Style::Gap, String::new()));
+        match &view.details {
+            None => paragraphs.push((Style::Text, "Loading the description...".into())),
+            Some(Err(error)) => {
+                paragraphs.push((Style::Text, format!("The description didn't load: {error}")));
+                paragraphs.push((Style::Text, project.summary.clone()));
+            }
+            Some(Ok(details)) => {
+                let body = project_page::paragraphs(&details.body);
+                if body.is_empty() {
+                    paragraphs.push((Style::Text, project.summary.clone()));
+                }
+                paragraphs.extend(body);
+            }
+        }
+        let mut lines = Vec::new();
+        for (style, text) in paragraphs {
+            let (face, size, room) = match style {
+                Style::Heading => (Face::Medium, 18.0, width),
+                Style::Item => (Face::Regular, 15.0, width - 20.0),
+                _ => (Face::Regular, 15.0, width),
+            };
+            if style == Style::Gap {
+                lines.push((style, String::new(), false));
+                continue;
+            }
+            for (n, line) in project_page::wrap(&text, room, |t| ui.measure(face, size, t))
+                .into_iter()
+                .enumerate()
+            {
+                lines.push((style, line, n == 0));
+            }
+        }
+        view.lines = Some((width, lines));
+    }
+    let height = |style: Style| match style {
+        Style::Heading => 32.0,
+        Style::Gap => 12.0,
+        _ => 22.0,
+    };
+    let lines = &view.lines.as_ref().expect("wrapped above").1;
+    let total: f32 = lines.iter().map(|(style, _, _)| height(*style)).sum();
+    let maximum = (total - (bottom - top)).max(0.0);
+    catalog.scroll = catalog.scroll.clamp(0.0, maximum);
+    *list_view = Some([top, bottom, maximum]);
+    let mark = ui.mark();
+    let mut y = top - catalog.scroll;
+    let lines = &catalog
+        .project
+        .as_ref()
+        .expect("checked above")
+        .lines
+        .as_ref()
+        .unwrap()
+        .1;
+    for (style, text, first) in lines {
+        let line_height = height(*style);
+        if y + line_height >= top && y <= bottom {
+            match style {
+                Style::Heading => {
+                    ui.text(Face::Medium, 18.0, 32.0, y + 6.0, color::TEXT, text);
+                }
+                Style::Item => {
+                    if *first {
+                        ui.rounded(38.0, y + 9.0, 5.0, 5.0, 2.5, color::MUTED);
+                    }
+                    ui.text(Face::Regular, 15.0, 52.0, y, color::MUTED, text);
+                }
+                Style::Text => {
+                    ui.text(Face::Regular, 15.0, 32.0, y, color::MUTED, text);
+                }
+                Style::Gap => {}
+            }
+        }
+        y += line_height;
+    }
+    ui.clip_since(mark, -left, top, w + left, bottom - top);
+}
+
+/// Cuts the tap targets from `from` on to a scrolled list's band `top..bottom`: a row at the
+/// edge answers only where it shows.
+fn clip_targets(targets: &mut Vec<([f32; 4], Action)>, from: usize, top: f32, bottom: f32) {
+    let kept: Vec<_> = targets
+        .drain(from..)
+        .filter_map(|([x, y, w, h], action)| {
+            let (y0, y1) = (y.max(top), (y + h).min(bottom));
+            (y1 - y0 >= 12.0).then_some(([x, y0, w, y1 - y0], action))
+        })
+        .collect();
+    targets.extend(kept);
 }
 
 pub(super) fn button(
@@ -656,6 +921,21 @@ impl Launcher {
                 );
                 self.targets.push((launch, Action::Play));
             }
+        } else if page.is_catalog() && self.catalog.project.is_some() {
+            let atlas_id = (
+                &gui.atlas as *const horizon_client::hud::HudAtlas as usize,
+                horizon_client::ui_theme::atlas_generation(),
+            );
+            draw_project(
+                &mut ui,
+                &mut self.catalog,
+                &mut self.targets,
+                &mut self.list_view,
+                atlas_id,
+                w,
+                h,
+                left,
+            );
         } else if page.is_catalog() {
             ui.text(
                 Face::Medium,
@@ -808,9 +1088,11 @@ impl Launcher {
                 bottom,
                 (row_count as f32 * 78.0 - (bottom - top)).max(0.0),
             ]);
+            // Rows at the band's edges show their visible part (cards start 8 above a row).
+            let clip = (ui.mark(), self.targets.len(), top - 8.0);
             for (row, (id, title, description)) in bundled.iter().enumerate() {
                 let y = top + row as f32 * 78.0 - self.catalog.scroll;
-                if y < top - 1.0 || y + 68.0 > bottom {
+                if y + 58.0 < clip.2 || y - 8.0 > bottom {
                     continue;
                 }
                 style::card(&mut ui, [16.0, y - 8.0, w - 32.0, 66.0], color::CARD);
@@ -838,6 +1120,8 @@ impl Launcher {
             for (row, (i, p)) in catalog_rows.into_iter().enumerate() {
                 let y = top + (row + bundled.len()) as f32 * 78.0 - self.catalog.scroll;
                 let download = self.catalog.download_label(p);
+                self.list_targets
+                    .push(([16.0, y, w - 192.0, 50.0], Action::OpenProject(i)));
                 if download.is_none()
                     && !(p.kind == crate::browser::Kind::Mod
                         && p.source == crate::browser::SourceId::Modrinth)
@@ -845,10 +1129,13 @@ impl Launcher {
                     self.list_targets
                         .push(([w - 150.0, y, 118.0, 70.0], Action::Install(i)));
                 }
-                if y < top || y + 70.0 > bottom {
+                if y + 58.0 < clip.2 || y - 8.0 > bottom {
                     continue;
                 }
                 style::card(&mut ui, [16.0, y - 8.0, w - 32.0, 66.0], color::CARD);
+                // The whole card but its button opens the project's page.
+                self.targets
+                    .push(([16.0, y - 8.0, w - 192.0, 66.0], Action::OpenProject(i)));
                 // The icon, or the initial until it has loaded (or when there is none).
                 let sprite = p
                     .icon
@@ -931,6 +1218,8 @@ impl Launcher {
                     );
                 }
             }
+            ui.clip_since(clip.0, -left, clip.2, w + left, bottom - clip.2);
+            clip_targets(&mut self.targets, clip.1, clip.2, bottom);
             button(
                 &mut ui,
                 &mut self.targets,
@@ -968,6 +1257,7 @@ impl Launcher {
             let maximum = (total - (bottom - top)).max(0.0);
             self.catalog.scroll = self.catalog.scroll.clamp(0.0, maximum);
             self.list_view = Some([top, bottom, maximum]);
+            let clip = (ui.mark(), self.targets.len(), top - 6.0);
             let mut offset = 0.0;
             for (section, kind) in Kind::ALL.into_iter().enumerate() {
                 let count = self.catalog.local.iter().filter(|e| e.kind == kind).count();
@@ -985,7 +1275,7 @@ impl Launcher {
                     .push(([32.0, y, w - 210.0, 40.0], Action::ToggleSection(section)));
                 self.list_targets
                     .push(([w - 165.0, y, 133.0, 40.0], Action::Import(kind)));
-                if y >= top && y + 40.0 <= bottom {
+                if y + 40.0 > clip.2 && y < bottom {
                     button(
                         &mut ui,
                         &mut self.targets,
@@ -1043,7 +1333,7 @@ impl Launcher {
                             action,
                         ));
                     }
-                    if y >= top && y + row_height - 4.0 <= bottom {
+                    if y + row_height - 14.0 > clip.2 && y - 6.0 < bottom {
                         style::card(
                             &mut ui,
                             [16.0, y - 6.0, w - 32.0, row_height - 8.0],
@@ -1147,7 +1437,7 @@ impl Launcher {
                         [w - 165.0, y, 133.0, row_height - 4.0],
                         Action::DeleteLocal(i),
                     ));
-                    if y < top || y + row_height - 4.0 > bottom {
+                    if y + row_height - 14.0 < clip.2 || y - 6.0 > bottom {
                         continue;
                     }
                     style::card(
@@ -1224,6 +1514,8 @@ impl Launcher {
                     );
                 }
             }
+            ui.clip_since(clip.0, -left, clip.2, w + left, bottom - clip.2);
+            clip_targets(&mut self.targets, clip.1, clip.2, bottom);
         } else {
             let c = &self.catalog.config;
             ui.text(
@@ -1244,6 +1536,7 @@ impl Launcher {
                 h - 130.0,
                 (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
+            let clip = (ui.mark(), self.targets.len(), 185.0);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
                 (
@@ -1396,6 +1689,7 @@ impl Launcher {
             .enumerate()
             {
                 let y = 195.0 + i as f32 * row_height - self.catalog.scroll;
+                let row_bottom = y + if compact { 70.0 } else { 46.0 };
                 self.list_targets.push((
                     [
                         if compact { 32.0 } else { w * 0.36 },
@@ -1405,7 +1699,7 @@ impl Launcher {
                     ],
                     action,
                 ));
-                if y < 185.0 || y + if compact { 70.0 } else { 46.0 } > h - 130.0 {
+                if row_bottom < 185.0 || y > h - 130.0 {
                     continue;
                 }
                 ui.text(
@@ -1478,6 +1772,8 @@ impl Launcher {
                     color::BORDER,
                 );
             }
+            ui.clip_since(clip.0, -left, clip.2, w + left, h - 130.0 - clip.2);
+            clip_targets(&mut self.targets, clip.1, clip.2, h - 130.0);
             button(
                 &mut ui,
                 &mut self.targets,
@@ -2050,6 +2346,13 @@ impl Launcher {
             Some(Action::Controls) => {
                 self.edit_controls = true;
                 self.action(events)?;
+            }
+            Some(Action::OpenProject(i)) => self.catalog.open_project(i),
+            Some(Action::CloseProject) => self.catalog.close_project(),
+            Some(Action::OpenProjectPage) => {
+                if let Some(view) = &self.catalog.project {
+                    crate::platform::open_url(&view.project.page);
+                }
             }
             Some(Action::Search) => {
                 crate::platform::hide();

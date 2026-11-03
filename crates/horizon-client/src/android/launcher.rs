@@ -227,6 +227,9 @@ impl Launcher {
             self.login.hide();
         } else if self.chooser.take().is_some() {
             // Back dismisses the current dialog, including the exit question.
+        } else if self.catalog.editing.is_none() && self.catalog.project.is_some() {
+            // From a result's page, back to the list.
+            self.catalog.close_project();
         } else if self.catalog.editing.take().is_none() {
             self.exit_confirmation = true;
         }

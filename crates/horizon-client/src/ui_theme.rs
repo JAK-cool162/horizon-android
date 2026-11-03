@@ -403,6 +403,18 @@ impl<'a> Ui<'a> {
             u32::MAX,
         );
     }
+    /// Where drawing is now, for [`Ui::clip_since`].
+    pub fn mark(&self) -> usize {
+        self.batch.vertices.len()
+    }
+    /// Cuts what was drawn since `mark` to `x y w h` dp: a scrolled list's rows at its edges show
+    /// their visible part.
+    pub fn clip_since(&mut self, mark: usize, x: f32, y: f32, w: f32, h: f32) {
+        let s = self.scale;
+        let (x0, y0) = (self.px_x(x) / s, self.px_y(y) / s);
+        let (x1, y1) = (self.px_x(x + w) / s, self.px_y(y + h) / s);
+        self.batch.clip_since(mark, x0, y0, x1, y1);
+    }
     pub fn finish(self) {
         let pending = with_cache(self.atlas, |c| std::mem::take(&mut c.pending));
         self.batch.patches.extend(pending);

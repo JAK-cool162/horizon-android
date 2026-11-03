@@ -210,6 +210,22 @@ pub struct Catalog {
     native_restored: bool,
     /// The results' icons.
     pub thumbs: Thumbs,
+    /// A result's page, open over the list.
+    pub project: Option<ProjectView>,
+}
+
+/// A result's page: its description, fetched from its source when opened.
+pub struct ProjectView {
+    pub project: Project,
+    /// Its row in `results` when opened, for Install while the results still hold it.
+    pub index: usize,
+    /// The source's page: `None` while it loads.
+    pub details: Option<Result<browser::details::Details, String>>,
+    worker: Option<mpsc::Receiver<Result<browser::details::Details, String>>>,
+    /// The list's scroll, given back by Back.
+    list_scroll: f32,
+    /// The page's lines wrapped to a width: (width, lines as style, text, first line of an item).
+    pub lines: Option<(f32, Vec<(crate::project_page::Style, String, bool)>)>,
 }
 
 /// Icons fetched once each from a result's `icon` link over HTTPS, in the background and a few at
@@ -314,13 +330,7 @@ fn fetch_icon(url: &str) -> Option<Vec<u8>> {
 /// shader translator (partly), and Java mods don't run.
 pub fn compatibility(project: &Project) -> (String, u32, u32) {
     use crate::launcher_style::color;
-    let support = match (project.kind, project.source) {
-        (Kind::Shader, source) if source != browser::SourceId::Horizon => {
-            browser::Support::Partial("Translated from GLSL".into())
-        }
-        (Kind::Mod, browser::SourceId::Modrinth) => browser::Support::No("Java mod".into()),
-        _ => project.support(),
-    };
+    let support = android_support(project);
     let (fill, ink) = match support {
         browser::Support::Works => (color::GOOD, color::ON_GOOD),
         browser::Support::Partial(_) => (color::WARN, color::ON_WARN),
@@ -331,6 +341,20 @@ pub fn compatibility(project: &Project) -> (String, u32, u32) {
         None => support.label().to_owned(),
     };
     (label, fill, ink)
+}
+/// How `project` runs on Android, with why when not fully.
+pub fn android_support(project: &Project) -> browser::Support {
+    match (project.kind, project.source) {
+        (Kind::Shader, source) if source != browser::SourceId::Horizon => browser::Support::Partial(
+            "An Iris or OptiFine pack: Horizon translates its GLSL shaders, and some effects may \
+             look different or be missing."
+                .into(),
+        ),
+        (Kind::Mod, browser::SourceId::Modrinth) => browser::Support::No(
+            "A Java mod: Android plays Horizon's .hmod and .hnmod mods only.".into(),
+        ),
+        _ => project.support(),
+    }
 }
 #[derive(Clone)]
 pub struct LocalItem {
@@ -404,11 +428,50 @@ impl Catalog {
             github_token_saved: false,
             native_restored: false,
             thumbs: Default::default(),
+            project: None,
         };
         result.refresh(home);
         result
     }
+    /// Opens result `i`'s page and fetches its description in the background.
+    pub fn open_project(&mut self, i: usize) {
+        let Some(project) = self.results.get(i).cloned() else {
+            return;
+        };
+        let (tx, rx) = mpsc::channel();
+        let fetch = project.clone();
+        std::thread::spawn(move || {
+            let result = browser::source(fetch.source)
+                .ok_or_else(|| format!("{} can't be reached from here.", fetch.source.label()))
+                .and_then(|source| source.details(&fetch));
+            let _ = tx.send(result);
+        });
+        self.project = Some(ProjectView {
+            project,
+            index: i,
+            details: None,
+            worker: Some(rx),
+            list_scroll: self.scroll,
+            lines: None,
+        });
+        self.scroll = 0.0;
+    }
+    /// Back to the list, where it was.
+    pub fn close_project(&mut self) {
+        if let Some(view) = self.project.take() {
+            self.scroll = view.list_scroll;
+        }
+    }
+    /// The open page's result row, while the results still hold that project.
+    pub fn project_row(&self) -> Option<usize> {
+        let view = self.project.as_ref()?;
+        self.results
+            .get(view.index)
+            .filter(|p| p.id == view.project.id && p.source == view.project.source)
+            .map(|_| view.index)
+    }
     pub fn show_installed(&mut self, kind: Option<horizon_client::content_files::Kind>) {
+        self.project = None;
         self.searches.cancel_interest();
         self.page = Page::Installed;
         self.scroll = 0.0;
@@ -574,6 +637,20 @@ impl Catalog {
     }
     pub fn poll(&mut self, home: &Path) {
         self.thumbs.poll();
+        if let Some(view) = &mut self.project
+            && let Some(rx) = &view.worker
+        {
+            let reply = match rx.try_recv() {
+                Ok(reply) => Some(reply),
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err("The page didn't load.".into())),
+                Err(mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(reply) = reply {
+                view.details = Some(reply);
+                view.worker = None;
+                view.lines = None;
+            }
+        }
         if !self.native_restored {
             self.native_restored = true;
             self.github_token_saved = crate::native_build::token().is_some();
@@ -623,9 +700,11 @@ impl Catalog {
         self.start_search();
     }
     pub fn search(&mut self, home: &Path) {
+        self.project = None;
         self.request_search(home, true);
     }
     pub fn browse(&mut self, home: &Path) {
+        self.project = None;
         self.searches.cancel_interest();
         if self.page.is_catalog() {
             self.request_search(home, false);
