@@ -35,7 +35,10 @@
       "paths": [
         "crates/horizon-shaders"
       ],
-      "review": "Only the shader pack translator (no wgpu), unmodified by the fork, taken whole; the full merge (5,219 commits, 42 conflicts, the horizon-client-lib split) is left for a reviewed integration. The renderer gives the new GameInputs fields (lines, entity_geometry) None and leaves the new setup and begin programs out, as before the translator read them. Its 200+ tests passed; on three real packs MakeUp Ultra Fast went from 12 programs failing (gl_FogFragCoord) to none, BSL and Complementary translate as before. ARM64 Clippy passed. Not yet verified on a device."
+      "review": "Only the shader pack translator (no wgpu), unmodified by the fork, taken whole; the full merge (5,219 commits, 42 conflicts, the horizon-client-lib split) is left for a reviewed integration. The renderer gives the new GameInputs fields (lines, entity_geometry) None and leaves the new setup and begin programs out, as before the translator read them. Its 200+ tests passed; on three real packs MakeUp Ultra Fast went from 12 programs failing (gl_FogFragCoord) to none, BSL and Complementary translate as before. ARM64 Clippy passed. Not yet verified on a device.",
+      "renderer_changes": [
+        "d570e0a27 (#7695): clouds=off hides the game's clouds; without it a pack drawing its own clouds (Complementary, MakeUp) flickered with vanilla's"
+      ]
     }
   ]
 }
