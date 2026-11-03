@@ -10,6 +10,20 @@ use std::{
 };
 
 pub const FILE: &str = "horizon-mods.txt";
+/// Whether this build carries the fixed Android bundle below: an APK built with
+/// `HORIZON_ANDROID_BUNDLED_MODS=none` leaves it out, for one with only the native mods
+/// built into it (`tools/android_native_mods.py build`).
+pub fn android_bundle_on() -> bool {
+    option_env!("HORIZON_ANDROID_BUNDLED_MODS") != Some("none")
+}
+/// The fixed bundle this build carries: [`ANDROID_BUNDLED`], or none.
+pub fn android_bundled() -> &'static [(&'static str, &'static str, &'static str)] {
+    if android_bundle_on() {
+        &ANDROID_BUNDLED
+    } else {
+        &[]
+    }
+}
 /// Fixed native modules compiled into Android APKs, all opt-in.
 pub const ANDROID_BUNDLED: [(&str, &str, &str); 4] = [
     (
@@ -101,7 +115,7 @@ impl ModList {
         #[cfg(target_os = "android")]
         let disabled = {
             let mut disabled = disabled;
-            for (id, _, _) in ANDROID_BUNDLED {
+            for &(id, _, _) in android_bundled() {
                 if !enabled.contains(id) {
                     disabled.insert(id.to_owned());
                 }

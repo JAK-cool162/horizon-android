@@ -105,6 +105,9 @@ mod smartf3_settings;
 mod smartf3_click;
 
 pub(super) fn native_key(game: &mut Game<'_>, key: &str, pressed: bool) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &key, &pressed);
     #[cfg(target_os = "android")]
     {
@@ -113,6 +116,9 @@ pub(super) fn native_key(game: &mut Game<'_>, key: &str, pressed: bool) {
 }
 
 pub(super) fn native_wheel(game: &mut Game<'_>, steps: f32, claimed: &mut bool) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &steps, &claimed);
     #[cfg(target_os = "android")]
     {
@@ -121,6 +127,9 @@ pub(super) fn native_wheel(game: &mut Game<'_>, steps: f32, claimed: &mut bool) 
 }
 
 pub(super) fn native_zoom(game: &Game<'_>, zoom: &mut Option<NativeZoom>) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &zoom);
     #[cfg(target_os = "android")]
     {
@@ -129,6 +138,9 @@ pub(super) fn native_zoom(game: &Game<'_>, zoom: &mut Option<NativeZoom>) {
 }
 
 pub(super) fn native_mods(game: &mut Game<'_>, mods: &mut Vec<NativeMod>) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &mods);
     #[cfg(target_os = "android")]
     {
@@ -140,6 +152,9 @@ pub(super) fn native_mods(game: &mut Game<'_>, mods: &mut Vec<NativeMod>) {
 }
 
 pub(super) fn native_settings(game: &mut Game<'_>, mod_id: &str, buttons: &mut Vec<String>) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &mod_id, &buttons);
     #[cfg(target_os = "android")]
     {
@@ -151,6 +166,9 @@ pub(super) fn native_settings(game: &mut Game<'_>, mod_id: &str, buttons: &mut V
 }
 
 pub(super) fn native_settings_click(game: &mut Game<'_>, mod_id: &str, button: usize) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &mod_id, &button);
     #[cfg(target_os = "android")]
     {
@@ -162,6 +180,9 @@ pub(super) fn native_settings_click(game: &mut Game<'_>, mod_id: &str, button: u
 }
 
 pub(super) fn native_minimap(game: &Game<'_>, minimap: &mut Option<NativeMinimap>) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &minimap);
     #[cfg(target_os = "android")]
     {
@@ -170,6 +191,9 @@ pub(super) fn native_minimap(game: &Game<'_>, minimap: &mut Option<NativeMinimap
 }
 
 pub(super) fn native_frame(game: &mut Game<'_>, elapsed: Duration) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &elapsed);
     #[cfg(target_os = "android")]
     {
@@ -178,6 +202,9 @@ pub(super) fn native_frame(game: &mut Game<'_>, elapsed: Duration) {
 }
 
 pub(super) fn native_panel_event(game: &mut Game<'_>, mod_id: &str, event: &NativePanelEvent) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &mod_id, &event);
     #[cfg(target_os = "android")]
     {
@@ -186,6 +213,9 @@ pub(super) fn native_panel_event(game: &mut Game<'_>, mod_id: &str, event: &Nati
 }
 
 pub(super) fn native_command(game: &mut Game<'_>, command: &str, ran: &mut bool) {
+    if !horizon_client::mod_list::android_bundle_on() {
+        return;
+    }
     let _ = (&game, &command, &ran);
     #[cfg(target_os = "android")]
     {

@@ -251,6 +251,9 @@ class Tree:
         listing = find('crates/horizon-client-render/src/mod_list.rs',
                        r'pub const ANDROID_BUNDLED: \[\(&str, &str, &str\); \d+\] = \[(.*?)\n\];')
         bundled = re.findall(r'\(\s*"([a-z0-9_]+)"', listing)
+        # An APK built with HORIZON_ANDROID_BUNDLED_MODS=none carries none of them.
+        if os.environ.get('HORIZON_ANDROID_BUNDLED_MODS') == 'none':
+            bundled = []
         mixins_rev = find('launcher/src/native_mods.rs', r'pub const MIXINS_REV: &str = "([0-9a-f]{40})"')
         pending = frozenset(
             hook['target'] for fragment in sorted((root / 'tools/native-hook-fragments').glob('*.json'))

@@ -745,8 +745,9 @@ impl Launcher {
                 && self.catalog.config.mod_source == crate::shader_catalog::Origin::Horizon
             {
                 let query = self.catalog.query.to_lowercase();
-                horizon_client::mod_list::ANDROID_BUNDLED
-                    .into_iter()
+                horizon_client::mod_list::android_bundled()
+                    .iter()
+                    .copied()
                     .filter(|(id, title, _)| {
                         id.contains(&query) || title.to_lowercase().contains(&query)
                     })
@@ -762,7 +763,7 @@ impl Launcher {
                 .filter(|(_, p)| {
                     !(page == Page::Mods
                         && p.source == crate::browser::SourceId::Horizon
-                        && horizon_client::mod_list::ANDROID_BUNDLED
+                        && horizon_client::mod_list::android_bundled()
                             .iter()
                             .any(|(id, _, _)| *id == p.id))
                 })

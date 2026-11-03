@@ -239,7 +239,7 @@ pub fn built_native_mods() -> Vec<(&'static str, &'static str)> {
 pub fn native_status(
     manifest: &horizon_mods::index::native::Manifest,
 ) -> horizon_client::content_files::NativeStatus {
-    let bundled: Vec<&str> = horizon_client::mod_list::ANDROID_BUNDLED
+    let bundled: Vec<&str> = horizon_client::mod_list::android_bundled()
         .iter()
         .map(|(id, _, _)| *id)
         .collect();
@@ -307,7 +307,7 @@ impl Catalog {
             .collect();
         let on = horizon_client::mod_list::ModList::load(&game);
         // Only the APK's fixed copies: the list also holds `.hmod` ids, and those of removed mods.
-        self.bundled_enabled = horizon_client::mod_list::ANDROID_BUNDLED
+        self.bundled_enabled = horizon_client::mod_list::android_bundled()
             .iter()
             .map(|(id, _, _)| *id)
             .filter(|id| on.enabled.contains(*id) && !on.disabled.contains(*id))
