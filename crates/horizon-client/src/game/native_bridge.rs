@@ -34,8 +34,17 @@ pub(super) struct BridgeState {
     /// Calls since the last tick's hooks: the calling mod, whether a server
     /// mod, the id it got, the API, the function and the arguments.
     calls: Vec<(String, bool, u64, String, String, String)>,
-    /// Native APIs' events since then: API, name and data.
-    events: Vec<(String, String, String)>,
+    /// Native APIs' events since then: the one mod it is for (none: every
+    /// mod with capability `bridge`), API, name and data.
+    events: Vec<(Option<String>, String, String, String)>,
+}
+
+impl BridgeState {
+    /// The values native mods published, by API and key.
+    #[cfg_attr(not(feature = "mods"), allow(dead_code))]
+    pub(super) fn values(&self) -> &BTreeMap<(String, String), String> {
+        &self.values
+    }
 }
 
 /// Helpers for native mods, kept as stable as the hook points.
@@ -61,11 +70,53 @@ impl Game<'_> {
     /// native API `api` (`bridge-events.event`), before the next tick's
     /// hooks, in the order sent. API @API:mod_bridge@.
     pub(super) fn native_bridge_event(&mut self, api: &str, name: &str, data: &str) {
+        self.queue_bridge_event(None, api, name, data);
+    }
+    /// [`Game::native_bridge_event`] for the running mod `mod_id` alone: for a
+    /// mod that subscribed to it. API @API:mod_bridge@.
+    pub(super) fn native_bridge_event_to(
+        &mut self,
+        mod_id: &str,
+        api: &str,
+        name: &str,
+        data: &str,
+    ) {
+        self.queue_bridge_event(Some(mod_id), api, name, data);
+    }
+    fn queue_bridge_event(&mut self, to: Option<&str>, api: &str, name: &str, data: &str) {
         let events = &mut self.mods.bridge.events;
         if events.len() == QUEUED {
             events.remove(0);
         }
-        events.push((api.to_owned(), name.to_owned(), data.to_owned()));
+        events.push((
+            to.map(str::to_owned),
+            api.to_owned(),
+            name.to_owned(),
+            data.to_owned(),
+        ));
+    }
+    /// Asks the running mod `mod_id` (capability `bridge`) about `name` of the
+    /// native API `api` at once, inside the hook calling this (`bridge-asks.ask`):
+    /// its answer, none when it has none, wasn't built with asks or doesn't run
+    /// in this game (a server's hooks reach its server mods). The mod reads the
+    /// last tick's snapshot and no blocks. The hook waits for it: ask only the
+    /// mods that subscribed. API @API:mod_bridge@.
+    pub(super) fn native_bridge_ask(
+        &mut self,
+        mod_id: &str,
+        api: &str,
+        name: &str,
+        data: &str,
+    ) -> Option<String> {
+        #[cfg(feature = "mods")]
+        {
+            self.mods.mods.bridge_ask(mod_id, api, name, data)
+        }
+        #[cfg(not(feature = "mods"))]
+        {
+            let _ = (mod_id, api, name, data);
+            None
+        }
     }
 }
 
@@ -122,8 +173,11 @@ impl Game<'_> {
                 answer.as_deref().map_err(String::as_str),
             );
         }
-        for (api, name, data) in std::mem::take(&mut self.mods.bridge.events) {
-            self.mods.mods.bridge_event(&api, &name, &data);
+        for (to, api, name, data) in std::mem::take(&mut self.mods.bridge.events) {
+            match to {
+                Some(mod_id) => self.mods.mods.bridge_event_to(&mod_id, &api, &name, &data),
+                None => self.mods.mods.bridge_event(&api, &name, &data),
+            }
         }
     }
 }

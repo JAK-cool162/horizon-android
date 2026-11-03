@@ -411,7 +411,13 @@ impl Game<'_> {
             (enabled.contains(id) || dev_ids.iter().any(|d| d == id))
                 && !native.iter().any(|n| n.id == id)
         };
-        let mods = Mods::load_for(self.mod_runs(), &paths, on, vanilla_command);
+        // What native mods serve, for the mods' `init` (`bridge.version`).
+        let mut apis = Vec::new();
+        self.native_bridge_apis(&mut apis);
+        let values = self.mods.bridge.values().clone();
+        let runs = self.mod_runs();
+        let apis = apis.into_iter().collect();
+        let mods = Mods::load_bridged(runs, &paths, on, vanilla_command, apis, values);
         self.mods.mods = mods;
         let chosen = &self.settings.mods;
         self.mods.mods.set_bindings(|id| chosen.keys_of(id));

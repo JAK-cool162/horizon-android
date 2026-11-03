@@ -57,8 +57,11 @@ APK build. See [mods that load without a rebuild](android-native-mods.md#api-lev
 Native mods can serve APIs of their own to sandboxed mods: capability `bridge` (`version`,
 `get`, `call`, with `bridge_reply` and `bridge_event` back), and the hook points
 `native_bridge_apis` and `native_bridge_call`. New APIs then come as shareable `.hnmod` files
-instead of changes to the game's mod API. Examples: the `extras_api` native mod and the
-`welcome-kit` mod that uses it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
+instead of changes to the game's mod API. Native APIs can also ask a mod at once inside a
+hook (`bridge-asks`, `native_bridge_ask`), so it can cancel a block break, an attack or a
+command, as Fabric's callbacks do. Examples: the `extras_api` native mod (version 2: events,
+cancellable callbacks and player helpers) and the `welcome-kit` and `spawn-guard` mods that use
+it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
 ## Verification
 
@@ -76,4 +79,5 @@ instead of changes to the game's mod API. Examples: the `extras_api` native mod 
 - The mod bridge: the mod sandbox suite (33 tests, including that `bridge` needs its
   capability), welcome-kit's three sandbox scripts (with the Extras API, without it, and with
   failing calls), ARM64 Clippy with warnings denied and a host check without code mods passed.
-  Not yet verified on a device: the Extras API in a running game.
+  Asks: spawn-guard's sandbox scripts passed, and Extras API 2 with all its hooks applied
+  passed an ARM64 check. Not yet verified on a device: the Extras API in a running game.

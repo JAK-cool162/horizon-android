@@ -33,7 +33,16 @@ pub struct TestGame {
     /// changed; every other block, and the other dimensions, are air. Every
     /// biome is the dimension's plainest: plains, nether wastes, the end.
     pub world: std::collections::BTreeMap<(i32, i32, i32), String>,
+    /// Capability `bridge`: the native APIs served when the mod starts, and
+    /// their values.
+    bridge: BridgeTable,
 }
+
+/// Native APIs' versions and their values, as [`Mods::set_bridge`] takes them.
+type BridgeTable = (
+    std::collections::BTreeMap<String, u32>,
+    std::collections::BTreeMap<(String, String), String>,
+);
 
 /// The world a script's mod reads: [`TestGame::world`], copied for a step.
 struct ScriptWorld(std::collections::BTreeMap<(i32, i32, i32), String>);
@@ -120,6 +129,7 @@ impl TestGame {
             names: Vec::new(),
             tick: 0,
             world: Default::default(),
+            bridge: Default::default(),
         };
         copy_mod(hmod, &copy)?;
         game.start()?;
@@ -127,7 +137,14 @@ impl TestGame {
     }
 
     fn start(&mut self) -> Result<(), String> {
-        self.mods = Mods::load(std::slice::from_ref(&self.hmod), |_| true, |_| false);
+        self.mods = Mods::load_bridged(
+            crate::Runs::Both,
+            std::slice::from_ref(&self.hmod),
+            |_| true,
+            |_| false,
+            self.bridge.0.clone(),
+            self.bridge.1.clone(),
+        );
         match &self.mods.entries()[0].status {
             Status::Failed(reason) => Err(format!("the mod didn't start: {reason}")),
             _ if !self.mods.is_running() => Err("the mod has no code to run".into()),
@@ -342,6 +359,19 @@ fn first_version() -> u32 {
     1
 }
 
+/// The script's native APIs as [`Mods::set_bridge`] takes them.
+fn bridge_table(apis: &std::collections::BTreeMap<String, ApiSet>) -> BridgeTable {
+    let values = apis.iter().flat_map(|(n, a)| {
+        a.values
+            .iter()
+            .map(|(k, v)| ((n.clone(), k.clone()), v.clone()))
+    });
+    (
+        apis.iter().map(|(n, a)| (n.clone(), a.version)).collect(),
+        values.collect(),
+    )
+}
+
 /// What the script's native APIs answer to a call.
 fn bridge_answer(
     apis: &std::collections::BTreeMap<String, ApiSet>,
@@ -474,6 +504,9 @@ pub struct Step {
     /// Capability `bridge`: an event of a native API, after joins and before
     /// the step's ticks.
     bridge_event: Option<EventSet>,
+    /// Capability `bridge`: a native API's ask (`bridge-asks.ask`), after the
+    /// event; `expect.answer` checks the mod's answer.
+    bridge_ask: Option<EventSet>,
     #[serde(default)]
     expect: Expect,
 }
@@ -505,6 +538,8 @@ pub struct Expect {
     /// Capability `bridge`: every `bridge.call` during the step, in order, as
     /// `api function args`.
     calls: Option<Vec<String>>,
+    /// The mod's answer to the step's `bridge-ask`; `""` for none.
+    answer: Option<String>,
     /// The mod is turned off during this step, for a reason holding this text.
     /// Without it, a mod that stops fails the test.
     stopped: Option<String>,
@@ -522,6 +557,11 @@ impl Script {
         }
         if let Some(c) = &mut game.clock {
             self.clock.apply(c);
+        }
+        // The native APIs are there from the start: the mod restarts with them.
+        if !self.bridge.is_empty() {
+            game.bridge = bridge_table(&self.bridge);
+            game.reload()?;
         }
         for (i, step) in self.steps.iter().enumerate() {
             step.run(game, &self.bridge)
@@ -609,16 +649,8 @@ impl Step {
         if self.reload {
             game.reload()?;
         }
-        game.mods.set_bridge(
-            apis.iter().map(|(n, a)| (n.clone(), a.version)).collect(),
-            apis.iter()
-                .flat_map(|(n, a)| {
-                    a.values
-                        .iter()
-                        .map(|(k, v)| ((n.clone(), k.clone()), v.clone()))
-                })
-                .collect(),
-        );
+        let (served, values) = bridge_table(apis);
+        game.mods.set_bridge(served, values);
         if self.title_screen {
             game.player = None;
             game.clock = None;
@@ -634,6 +666,17 @@ impl Step {
         if let Some(e) = &self.bridge_event {
             game.mods.bridge_event(&e.api, &e.name, &e.data);
         }
+        let answer = self.bridge_ask.as_ref().map(|e| {
+            let id = game
+                .mods
+                .entries()
+                .first()
+                .and_then(|e| e.manifest.as_ref());
+            let id = id.map(|m| m.id.clone()).unwrap_or_default();
+            game.mods
+                .bridge_ask(&id, &e.api, &e.name, &e.data)
+                .unwrap_or_default()
+        });
         let server = game.server();
         let actor = |game: &TestGame| match &self.actor {
             Some(name) => game
@@ -875,6 +918,9 @@ impl Step {
         }
         if let Some(want) = &e.calls {
             same("calls", want, &calls)?;
+        }
+        if let Some(want) = &e.answer {
+            same("answer", &Some(want.clone()), &answer)?;
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());

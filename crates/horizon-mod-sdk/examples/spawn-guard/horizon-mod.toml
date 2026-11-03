@@ -1,0 +1,9 @@
+id = "spawn_guard"
+name = "Spawn Guard"
+version = "0.1.0"
+description = "Protects the blocks within 16 blocks of the Overworld's 0, 0 from players who aren't operators, and from explosions, through the Extras API native mod (extras_api.hnmod). A sandboxed mod: it loads without rebuilding the game."
+authors = ["Horizon Android"]
+api = "0.3"
+side = "server"
+capabilities = ["players", "bridge"]
+experimental = ["bridge"]

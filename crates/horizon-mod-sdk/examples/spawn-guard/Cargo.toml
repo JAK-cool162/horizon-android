@@ -1,0 +1,17 @@
+[package]
+name = "spawn-guard"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Example Horizon server mod on the mod bridge: protects the spawn area through the Extras API's cancellable callbacks"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-mod-sdk = { path = "../.." }
+serde_json = "1"
+
+[lints]
+workspace = true

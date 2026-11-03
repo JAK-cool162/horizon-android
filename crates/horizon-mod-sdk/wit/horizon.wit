@@ -744,6 +744,17 @@ interface bridge-events {
     event: func(api: string, name: string, data: string);
 }
 
+/// What a native API asks a mod with capability `bridge` while something
+/// happens, so the mod can change how it ends (a block break it cancels): an
+/// interface of its own, so mods built before it still load.
+interface bridge-asks {
+    /// `api` asks about `name` (`break_block`) with `data`, in the form the API
+    /// documents, at once and inside the game's tick: none lets it be, an
+    /// answer the API documents (`cancel`) changes it. A native API asks only
+    /// the mods that asked it to. Answer quickly: the game waits.
+    ask: func(api: string, name: string, data: string) -> option<string>;
+}
+
 /// What the server calls in a server mod (manifest `api = "0.3"`,
 /// experimental). Only the hooks `init` asks for are ever called. The player
 /// in each event is as the server saw them when it happened.
@@ -907,4 +918,16 @@ world recipes-host {
 world bridge-host {
     import bridge;
     export bridge-events;
+}
+
+/// The game's view of `bridge-asks` in a mod (see `ui-host`).
+world bridge-ask-host {
+    export bridge-asks;
+}
+
+/// What the SDK builds every mod's bridge with: `bridge-host` and the asks
+/// that came after it.
+world bridge-sdk {
+    include bridge-host;
+    export bridge-asks;
 }

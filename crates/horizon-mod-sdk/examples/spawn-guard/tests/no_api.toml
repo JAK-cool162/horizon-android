@@ -1,0 +1,4 @@
+# Without the Extras API: it starts, subscribes to nothing and answers nothing it isn't asked.
+
+[[step]]
+expect.calls = []

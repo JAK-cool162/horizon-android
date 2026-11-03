@@ -60,14 +60,18 @@ name:
 
 - The `.hnmod` serves the API on two hook points: `native_bridge_apis` lists its name and
   version, and `native_bridge_call` answers calls. It can publish values
-  (`native_bridge_publish`, read with `bridge::get`) and send events to every mod
-  (`native_bridge_event`). It runs as native code, so it can use anything the game can.
+  (`native_bridge_publish`, read with `bridge::get`), send events to every mod or one
+  (`native_bridge_event`, `native_bridge_event_to`), and **ask** a mod at once, inside one of
+  its hooks, as Fabric's callbacks do (`native_bridge_ask`): the mod's answer can cancel what
+  is happening. It runs as native code, so it can use anything the game can.
 - The `.hmod` declares capability `bridge` (experimental: `experimental = ["bridge"]`); the
   player sees "use the APIs your native mods (.hnmod) add to the game" before turning it on.
   It checks `bridge::version("extras")` and calls `bridge::call(api, function, args)`.
   Arguments and answers are text in the form the API documents (JSON is common). The answer
   arrives as `bridge_reply(id, ...)` before the next tick's hooks, when the server's state is
-  whole.
+  whole. Events arrive as `bridge_event`, and asks as `bridge_ask`, which returns `None` or an
+  answer such as `Some("cancel")`. A mod checking `bridge::version` in `init` already sees
+  the APIs.
 - The `.hnmod` still has to be compiled into the APK once. Mods using its API do not:
   new `.hmod` mods for it only need importing. One shared `.hnmod` can serve any number of
   `.hmod` mods.
@@ -76,8 +80,9 @@ The examples:
 
 | Example | What it is |
 |---|---|
-| [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `extras`: `command` runs a vanilla command as the server's console (permission level 4), and it publishes the server's `tps` and `mspt`. A mod using it can do what a server operator can. |
+| [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `extras` ([below](#the-extras-api)). A mod using it can do what a server operator can. |
 | [`examples/welcome-kit`](../crates/horizon-mod-sdk/examples/welcome-kit) | A `.hmod` using it: each new player gets a starter kit once, and `/tps` shows the server's tick rate. Without the Extras API it tells the player which `.hnmod` to install. |
+| [`examples/spawn-guard`](../crates/horizon-mod-sdk/examples/spawn-guard) | A `.hmod` on its asks: blocks within 16 of the Overworld's 0, 0 can't be broken or used by players below operator level 2, and explosions there break nothing. |
 
 Package the native mod with `python3 tools/android_native_mods.py pack
 crates/horizon-mod-sdk/examples/native/extras_api`. The bridge's hook points are not numbered
@@ -85,11 +90,50 @@ yet (`tools/native-hook-fragments/mod_bridge.json`), so `pack` pins the mod to t
 was packed on instead of writing `hooks`, and the in-app build applies it with
 `--allow-version-mismatch`. A `.hmod`'s sandbox scripts can stand in for a native API:
 `[bridge.extras]` with its `version`, `values` and `replies` (or `errors`) per function,
-`bridge-event = { api, name, data }` in a step, and `expect.calls`. Its answers arrive within
-the step (see welcome-kit's `tests/`).
+`bridge-event = { api, name, data }` and `bridge-ask = { api, name, data }` in a step,
+`expect.calls`, and `expect.answer` (`""` for no answer). Its answers arrive within the step
+(see welcome-kit's and spawn-guard's `tests/`).
 
 The bridge runs only in the game it is called in: a server mod's calls are answered by the
 server's native mods, a client mod's by the window's.
+
+### The Extras API
+
+Version 2 of `extras`, for server mods. Players are named by UUID (as `players::online` gives
+them) or name; arguments and answers are JSON, except `command`'s line.
+
+| Function | Arguments | What it does |
+|---|---|---|
+| `command` | a command line | Runs it as the server's console (permission level 4). |
+| `subscribe`, `unsubscribe` | `["player_join", "break_block", ...]` | Starts or stops the events and asks below for this mod. |
+| `players` | | The players online: `player`, `name`, `permission`, `dimension`, `x`, `y`, `z`, `game_mode`, `health`. |
+| `tell`, `actionbar` | `{"player", "text"}` | A chat line, or a line over the hotbar. |
+| `sidebar` | `{"player", "title", "lines": ["a", {"left", "right"}]}`; `"title": null` clears | A sidebar of up to 15 lines for that player. |
+| `tablist` | `{"player", "header", "footer"}` | The tab list's header and footer. |
+| `nickname` | `{"player", "name"}` (`null` clears) | The name others see. |
+| `xp`, `levels` | `{"player", "points"}`, `{"player", "levels"}` | Experience (Mending first), or levels added or taken. |
+| `sleep_ignored` | `{"player", "ignored"}` | Whether the night waits for them to sleep. |
+
+Values (`bridge::get("extras", ...)`): `tps`, `mspt`.
+
+| Event (after it happened) | Data |
+|---|---|
+| `player_join`, `player_leave` | `player`, `name` |
+| `player_death` | `player`, `cause` (`death.attack.lava`, or null) |
+| `mob_killed` | `player`, `entity`, `kind`: a mob their melee blow killed |
+| `item_dropped` | `player`, `item`, `count` |
+
+| Ask (answer `cancel`, or `cancel <reason>` told to the player) | Data |
+|---|---|
+| `break_block` | the player's fields, `x`, `y`, `z`, `block` (`minecraft:oak_log[axis=y]`) |
+| `use_block` | the player's fields, `x`, `y`, `z`, `face`, `block`; once per hand |
+| `attack_entity` | the player's fields, `entity`, `kind`, `at` |
+| `pickup_item` | `player`, `item`, `count`; canceled, the stack waits 10 ticks |
+| `command` | `player`, `name`, `command` (no slash); the reason is the command's answer |
+| `explosion` | `dimension`, `x`, `y`, `z`, `blocks`; canceled, it breaks no block |
+
+Asks are answered inside the game's tick, so they cost a call into each subscribed mod
+whenever that thing happens; a mod subscribes only to what it needs.
 
 ## In the launcher
 

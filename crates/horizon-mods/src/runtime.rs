@@ -84,6 +84,14 @@ mod bridge_bindings {
     });
 }
 use bridge_bindings::{BridgeHost, horizon::mods::bridge};
+/// `bridge-asks`: a world of its own, so mods built before it still load.
+mod ask_bindings {
+    wasmtime::component::bindgen!({
+        path: "../horizon-mod-sdk/wit",
+        world: "bridge-ask-host",
+    });
+}
+use ask_bindings::BridgeAskHost;
 /// Capability `render`'s imports (docs/mods.md): the game draws the shapes.
 mod render_bindings {
     wasmtime::component::bindgen!({
@@ -370,8 +378,9 @@ struct Running {
     ui: Option<UiHost>,
     /// A server mod's `use-events`, when it was built with them.
     uses: Option<UseHost>,
-    /// The mod's `bridge-events`, when it was built with them.
+    /// The mod's `bridge-events` and `bridge-asks`, when it was built with them.
     bridge: Option<BridgeHost>,
+    asks: Option<BridgeAskHost>,
     hooks: Hooks,
     /// It imports `game.raycast`.
     raycasts: bool,
@@ -556,7 +565,27 @@ impl Mods {
         enabled: impl Fn(&str) -> bool,
         reserved: impl Fn(&str) -> bool,
     ) -> Mods {
+        Mods::load_bridged(
+            runs,
+            paths,
+            enabled,
+            reserved,
+            Default::default(),
+            Default::default(),
+        )
+    }
+    /// [`Mods::load_for`] with what native mods serve ([`Mods::set_bridge`])
+    /// in place before the mods start, so their `init` sees it already.
+    pub fn load_bridged(
+        runs: Runs,
+        paths: &[PathBuf],
+        enabled: impl Fn(&str) -> bool,
+        reserved: impl Fn(&str) -> bool,
+        apis: std::collections::BTreeMap<String, u32>,
+        values: std::collections::BTreeMap<(String, String), String>,
+    ) -> Mods {
         let mut mods = Mods::default();
+        mods.set_bridge(apis, values);
         for path in paths {
             let modified = modified(path);
             let mut entry = Entry {
@@ -711,6 +740,7 @@ impl Mods {
             .map_err(|e| reason(&e))?;
         // Every mod built since `bridge`'s SDK has the export; older ones hear no replies.
         let bridge = BridgeHost::new(&mut store, &instance).ok();
+        let asks = BridgeAskHost::new(&mut store, &instance).ok();
         let (mut hooks, ui, uses) = if server {
             let exports = HorizonServerMod::new(&mut store, &instance).map_err(|e| reason(&e))?;
             let uses = UseHost::new(&mut store, &instance).ok();
@@ -760,6 +790,7 @@ impl Mods {
             ui,
             uses,
             bridge,
+            asks,
             hooks,
             raycasts: functions.iter().any(|f| f == "game.raycast"),
             reads_recipes: functions.iter().any(|f| f.starts_with("recipes.")),
@@ -1041,6 +1072,45 @@ impl Mods {
             }
             None => Ok(()),
         });
+    }
+    /// The running mod `mod_id`'s answer to the native API `api`'s ask (`bridge-asks.ask`),
+    /// at once; none when it has none, wasn't built with asks or isn't running here.
+    pub fn bridge_ask(
+        &mut self,
+        mod_id: &str,
+        api: &str,
+        name: &str,
+        data: &str,
+    ) -> Option<String> {
+        let i = self.bridge_mod(mod_id)?;
+        self.call(i, FUEL_EVENT, |run| match &run.asks {
+            Some(a) => a
+                .horizon_mods_bridge_asks()
+                .call_ask(&mut run.store, api, name, data),
+            None => Ok(None),
+        })
+        .flatten()
+    }
+    /// An event of the native API `api` for the running mod `mod_id` alone.
+    pub fn bridge_event_to(&mut self, mod_id: &str, api: &str, name: &str, data: &str) {
+        let Some(i) = self.bridge_mod(mod_id) else {
+            return;
+        };
+        self.call(i, FUEL_EVENT, |run| match &run.bridge {
+            Some(b) => b
+                .horizon_mods_bridge_events()
+                .call_event(&mut run.store, api, name, data),
+            None => Ok(()),
+        });
+    }
+    /// The entry of the running mod `mod_id` with capability `bridge`.
+    fn bridge_mod(&self, mod_id: &str) -> Option<usize> {
+        self.entries.iter().position(|e| {
+            e.run.is_some()
+                && e.manifest.as_ref().is_some_and(|m| {
+                    m.id == mod_id && m.capabilities.contains(&crate::Capability::Bridge)
+                })
+        })
     }
     /// An event of the native API `api`, to every running mod with
     /// capability `bridge`.

@@ -84,6 +84,20 @@ Capability `bridge`, for client and server mods alike: the game finds it in a mo
 - Imports (what the game offers): `bridge`
 - Exports (what the mod provides): `bridge-events`
 
+## World `bridge-ask-host`
+
+The game's view of `bridge-asks` in a mod (see `ui-host`).
+
+- Imports (what the game offers): 
+- Exports (what the mod provides): `bridge-asks`
+
+## World `bridge-sdk`
+
+What the SDK builds every mod's bridge with: `bridge-host` and the asks that came after it.
+
+- Imports (what the game offers): `bridge`
+- Exports (what the mod provides): `bridge-asks`, `bridge-events`
+
 ## `log`
 
 Access: always granted.
@@ -742,6 +756,16 @@ What the game tells a mod with capability `bridge`: an interface of its own, so 
 | --- | --- | --- |
 | `reply` | `func(id: u64, api: string, function: string, answer: result<string, string>)` | The answer to the `bridge.call` that returned `id`. |
 | `event` | `func(api: string, name: string, data: string)` | Something `api` told every mod with capability `bridge` (`native_bridge_event`), at the start of a tick. |
+
+## `bridge-asks`
+
+Access: exported by the mod: the game calls it.
+
+What a native API asks a mod with capability `bridge` while something happens, so the mod can change how it ends (a block break it cancels): an interface of its own, so mods built before it still load.
+
+| Function | Signature | What it does |
+| --- | --- | --- |
+| `ask` | `func(api: string, name: string, data: string) -> option<string>` | `api` asks about `name` (`break_block`) with `data`, in the form the API documents, at once and inside the game's tick: none lets it be, an answer the API documents (`cancel`) changes it. A native API asks only the mods that asked it to. Answer quickly: the game waits. |
 
 ## `server-events`
 

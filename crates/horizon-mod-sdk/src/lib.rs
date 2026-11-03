@@ -43,12 +43,14 @@ wit_bindgen::generate!({
 pub mod bridge_sdk {
     wit_bindgen::generate!({
         path: "wit",
-        world: "bridge-host",
+        world: "bridge-sdk",
         pub_export_macro: true,
         export_macro_name: "__export_bridge",
         default_bindings_module: "horizon_mod_sdk::bridge_sdk",
     });
 }
+#[doc(hidden)]
+pub use bridge_sdk::exports::horizon::mods::bridge_asks::Guest as __AskGuest;
 #[doc(hidden)]
 pub use bridge_sdk::exports::horizon::mods::bridge_events::Guest as __BridgeGuest;
 /// Capability `bridge`: the APIs native mods (`.hnmod`) add, by name.
@@ -92,6 +94,12 @@ pub trait Mod: Sized + 'static {
     }
     /// An event a native API sent to every mod with capability `bridge`.
     fn bridge_event(&mut self, _api: &str, _name: &str, _data: &str) {}
+    /// A native API's question about something happening now (capability
+    /// `bridge`), for the events the mod subscribed to there: `None` lets it be,
+    /// an answer the API documents (`Some("cancel".into())`) changes it.
+    fn bridge_ask(&mut self, _api: &str, _name: &str, _data: &str) -> Option<String> {
+        None
+    }
 }
 
 impl Registration {
@@ -190,6 +198,13 @@ macro_rules! export_mod {
                 }
                 fn event(api: String, name: String, data: String) {
                     with(|m| $crate::Mod::bridge_event(m, &api, &name, &data))
+                }
+            }
+            impl $crate::__AskGuest for Export {
+                fn ask(api: String, name: String, data: String) -> Option<String> {
+                    let mut out = None;
+                    with(|m| out = $crate::Mod::bridge_ask(m, &api, &name, &data));
+                    out
                 }
             }
             impl $crate::__UiEventsGuest for Export {
@@ -296,6 +311,12 @@ pub mod server {
         }
         /// An event a native API sent to every mod with capability `bridge`.
         fn bridge_event(&mut self, _api: &str, _name: &str, _data: &str) {}
+        /// A native API's question about something happening now (capability
+        /// `bridge`), for the events the mod subscribed to there: `None` lets it be,
+        /// an answer the API documents (`Some("cancel".into())`) changes it.
+        fn bridge_ask(&mut self, _api: &str, _name: &str, _data: &str) -> Option<String> {
+            None
+        }
     }
 
     impl Registration {
@@ -520,6 +541,13 @@ macro_rules! export_server_mod {
                 }
                 fn event(api: String, name: String, data: String) {
                     with(|m| ServerMod::bridge_event(m, &api, &name, &data))
+                }
+            }
+            impl $crate::__AskGuest for Export {
+                fn ask(api: String, name: String, data: String) -> Option<String> {
+                    let mut out = None;
+                    with(|m| out = ServerMod::bridge_ask(m, &api, &name, &data));
+                    out
                 }
             }
             impl $crate::server::__UseGuest for Export {
