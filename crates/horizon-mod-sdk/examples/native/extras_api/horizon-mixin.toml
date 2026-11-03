@@ -1,6 +1,6 @@
 [mod]
 id = "extras_api"
-version = "3.0.0"
+version = "3.1.0"
 priority = 100
 
 # The Extras API: an API of this native mod's own for sandboxed .hmod mods with capability
@@ -191,4 +191,27 @@ bindings = [
   { name = "dimension", ty = "&str", value = "dimension" },
   { name = "center", ty = "[f64; 3]", value = "center" },
   { name = "blocks", ty = "&mut Vec<[i32; 3]>", value = "&mut *blocks" },
+]
+
+# Its settings page: the permissions mods asked for.
+[[injection]]
+id = "settings"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
+helper = "settings.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+]
+
+[[injection]]
+id = "settings_click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings_click"
+helper = "settings_click.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "button", ty = "usize", value = "button" },
 ]

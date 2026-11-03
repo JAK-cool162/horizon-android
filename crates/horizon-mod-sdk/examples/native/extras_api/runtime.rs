@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "extras_api";
 pub const NAME: &str = "Extras API";
-pub const VERSION: &str = "3.0.0";
+pub const VERSION: &str = "3.1.0";
 pub const DESCRIPTION: &str = "Gives sandboxed mods the API extras: events (joins, deaths, kills, drops), cancellable callbacks (block breaks and uses, attacks, item pickups, commands, explosions), player helpers (action bar, sidebar, tab list, nicknames, experience), vanilla commands as the server's console, and the video options and shader pack. Mods using it can do what a server operator can, and change your video settings.";
 /// The API's name and version, as mods ask for them.
 pub const API: &str = "extras";
@@ -225,12 +225,126 @@ fn serve_client(game: &mut crate::game::Game<'_>, function: &str, args: &str) ->
     }
 }
 
+/// What a mod needs the player's permission for, by group: its name and what the player reads.
+/// Reading (players, tps, options, events) needs none.
+pub const GROUPS: [(&str, &str); 4] = [
+    ("commands", "run commands as the server"),
+    ("players", "message, rename and give experience to players"),
+    ("control", "cancel what players do"),
+    ("settings", "change your video settings"),
+];
+
+/// The group a call needs, if any.
+pub fn group_of(function: &str, args: &str) -> Option<&'static str> {
+    match function {
+        "command" => Some("commands"),
+        "tell" | "actionbar" | "sidebar" | "tablist" | "nickname" | "xp" | "levels"
+        | "sleep_ignored" => Some("players"),
+        "set_option" => Some("settings"),
+        // Subscribing to an ask lets the mod cancel; events only hear.
+        "subscribe" => {
+            let names: Vec<String> = serde_json::from_str(args).unwrap_or_default();
+            names.iter().any(|n| ASKS.contains(&n.as_str())).then_some("control")
+        }
+        _ => None,
+    }
+}
+
+/// The player's decisions, kept in the game folder (`.horizon-mod-data/extras_api/permissions`),
+/// one `mod_id group allow|deny|ask` a line; a server's admin can edit it.
+pub fn read_permissions(text: &str) -> BTreeMap<(String, String), String> {
+    text.lines()
+        .filter_map(|l| {
+            let mut parts = l.split_whitespace();
+            let (m, g, s) = (parts.next()?, parts.next()?, parts.next()?);
+            GROUPS.iter().any(|(name, _)| *name == g).then(|| ((m.to_owned(), g.to_owned()), s.to_owned()))
+        })
+        .collect()
+}
+
+pub fn write_permissions(all: &BTreeMap<(String, String), String>) -> String {
+    all.iter().map(|((m, g), s)| format!("{m} {g} {s}\n")).collect()
+}
+
+fn permissions(game: &crate::game::Game<'_>) -> BTreeMap<(String, String), String> {
+    read_permissions(&game.native_setting(ID, "permissions").unwrap_or_default())
+}
+
+pub(super) fn save_permissions(game: &crate::game::Game<'_>, all: &BTreeMap<(String, String), String>) {
+    game.native_set_setting(ID, "permissions", &write_permissions(all));
+}
+
+/// What the player reads for a group.
+pub fn describe(group: &str) -> &'static str {
+    GROUPS.iter().find(|(g, _)| *g == group).map_or("do this", |(_, d)| d)
+}
+
+/// `Ok` when the player allowed `mod_id` the group; else the request is recorded (and the
+/// operators told, once) and the call refused with where to allow it.
+fn check(game: &mut crate::game::Game<'_>, server: bool, mod_id: &str, group: &str) -> Result<(), String> {
+    let mut all = permissions(game);
+    let key = (mod_id.to_owned(), group.to_owned());
+    match all.get(&key).map(String::as_str) {
+        Some("allow") => return Ok(()),
+        Some(_) => {}
+        None => {
+            all.insert(key, "ask".into());
+            save_permissions(game, &all);
+            let line = horizon_client::text::Text::literal(format!(
+                "[Extras API] {mod_id} asks to {}: Options > Mods > Extras API > Settings",
+                describe(group)
+            ));
+            if server {
+                let players = game.native_server_players();
+                let ops: Vec<u128> = players.iter().filter(|p| p.permission >= 2).map(|p| p.uuid).collect();
+                // Single player without cheats: its one player decides.
+                let tell = if ops.is_empty() && players.len() == 1 { vec![players[0].uuid] } else { ops };
+                for uuid in tell {
+                    game.native_tell(uuid, line.clone());
+                }
+            } else {
+                game.system_message(line);
+            }
+        }
+    }
+    Err(format!(
+        "{mod_id} needs your permission to {}: allow it in Options > Mods > Extras API > Settings",
+        describe(group)
+    ))
+}
+
+/// The Extras API's settings page: one switch a mod and group it asked for.
+pub(super) fn settings_buttons(game: &crate::game::Game<'_>) -> Vec<String> {
+    let all = permissions(game);
+    if all.is_empty() {
+        return vec!["No mod has asked for a permission yet".into()];
+    }
+    all.iter()
+        .map(|((m, g), s)| {
+            let state = if s == "allow" { "Allowed" } else { "Not allowed" };
+            format!("{m}: {}: {state}", describe(g))
+        })
+        .collect()
+}
+
+/// Button `button` of that page: allows or takes back that permission.
+pub(super) fn settings_click(game: &crate::game::Game<'_>, button: usize) {
+    let mut all = permissions(game);
+    if let Some((_, state)) = all.iter_mut().nth(button) {
+        *state = if state == "allow" { "deny".into() } else { "allow".into() };
+        save_permissions(game, &all);
+    }
+}
+
 /// A mod's call to `extras`: its answer.
 pub(super) fn serve(
     game: &mut crate::game::Game<'_>,
     call: &crate::game::native_hooks::NativeBridgeCall<'_>,
 ) -> Result<String, String> {
     let function = call.function;
+    if let Some(group) = group_of(function, call.args) {
+        check(game, call.server, call.mod_id, group)?;
+    }
     if !call.server {
         return serve_client(game, function, call.args);
     }

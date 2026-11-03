@@ -124,6 +124,18 @@ arguments and answers are JSON, except `command`'s line.
 
 Values (`bridge::get("extras", ...)`): `tps`, `mspt`.
 
+**Permissions (Extras API 3.1).** What changes the game needs the player's yes, per mod:
+`commands` (`command`), `players` (`tell`, `actionbar`, `sidebar`, `tablist`, `nickname`,
+`xp`, `levels`, `sleep_ignored`), `control` (subscribing to an ask, which can cancel) and
+`settings` (`set_option`). Reading (`players`, `options`, `shader_packs`, values, events)
+needs none. Until the player allows it, the call answers `Err("<mod> needs your permission to
+...: allow it in Options > Mods > Extras API > Settings")`, and the operators (single
+player: its player) are told once. The Settings page lists every mod and group asked for,
+each a switch. The decisions are in the game folder's
+`horizon-mods/.horizon-mod-data/extras_api/permissions`, one `<mod> <group> allow|deny|ask`
+a line, which a dedicated server's admin edits. A mod refused at start asks again later
+(spawn-guard retries every 100 ticks).
+
 | Event (after it happened) | Data |
 |---|---|
 | `player_join`, `player_leave` | `player`, `name` |

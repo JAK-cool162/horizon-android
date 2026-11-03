@@ -12,7 +12,13 @@ const ASKS: &str = r#"["break_block","use_block","explosion"]"#;
 /// How far from 0, 0 the area reaches, in blocks.
 const RADIUS: f64 = 16.0;
 
-struct SpawnGuard;
+/// Whether the Extras API took the subscription; until then (the player hasn't allowed
+/// "control" yet) it is asked again every 100 ticks.
+#[derive(Default)]
+struct SpawnGuard {
+    subscribed: bool,
+    warned: bool,
+}
 
 /// Whether `data` (an ask's JSON) is in the protected area.
 fn protected(data: &Value) -> bool {
@@ -45,7 +51,28 @@ impl ServerMod for SpawnGuard {
         } else {
             bridge::call(API, "subscribe", ASKS)?;
         }
-        Ok((SpawnGuard, Registration::new()))
+        Ok((SpawnGuard::default(), Registration::new().on_tick()))
+    }
+
+    fn tick(&mut self, tick: u64) {
+        if !self.subscribed && tick % 100 == 0 && bridge::version(API).is_some_and(|v| v >= 2) {
+            let _ = bridge::call(API, "subscribe", ASKS);
+        }
+    }
+
+    fn bridge_reply(&mut self, _id: u64, api: &str, function: &str, answer: Result<&str, &str>) {
+        if api != API || function != "subscribe" {
+            return;
+        }
+        match answer {
+            Ok(_) => self.subscribed = true,
+            // Not allowed yet (Options > Mods > Extras API > Settings): said once.
+            Err(why) if !self.warned => {
+                self.warned = true;
+                horizon_mod_sdk::warn(&format!("Spawn Guard: {why}"));
+            }
+            Err(_) => {}
+        }
     }
 
     fn bridge_ask(&mut self, api: &str, name: &str, data: &str) -> Option<String> {
