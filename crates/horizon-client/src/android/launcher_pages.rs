@@ -71,6 +71,7 @@ pub(super) enum Action {
     OpenNativeRun,
     OpenTokenPage,
     PasteToken,
+    ImportOtherApp,
 }
 
 pub(super) fn button(
@@ -1144,11 +1145,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (21.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (22.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (21.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (22.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -1188,6 +1189,11 @@ impl Launcher {
                     "World files",
                     "Import / copy / back up in Files".into(),
                     Action::WorldFiles,
+                ),
+                (
+                    "Import from another Horizon app",
+                    "Worlds, settings and add-ons".into(),
+                    Action::ImportOtherApp,
                 ),
                 ("Profile", format!("Profile {}", c.profile), Action::Profile),
                 (
@@ -1819,6 +1825,13 @@ impl Launcher {
                         }
                         Err(e) => self.catalog.status = e,
                     }
+                }
+            }
+            Some(Action::ImportOtherApp) => {
+                crate::platform::hide();
+                if let Err(e) = crate::data_import::begin(self.catalog.config.game_home(&self.home))
+                {
+                    self.catalog.status = e;
                 }
             }
             Some(Action::OpenTokenPage) => {

@@ -46,6 +46,12 @@ beside the overview with the account, the version and profile, the mods enabled 
   with them ([native mods on Android](android-native-mods.md)).
 - **Packs:** find and install resource packs with checksum verification.
 - **Installed:** enable, disable or remove installed additions.
+- **Setup > Import from another Horizon app:** copies worlds, settings and add-ons out of
+  another Horizon Android app (the official release or another build) through its Files
+  folder. Pick its **Horizon Android** folder (or just its **Worlds**) in Android's picker.
+  Worlds with a name this app has already come in as `Name (imported)`; existing add-ons
+  stay; settings files keep a `.before-import` copy. Minecraft's own files are not shared
+  between apps, so a new app still downloads them once.
 - **Settings:** rendering mode, input mode, profile, server and orientation.
   Profiles keep separate saves and settings. Offline player names are edited
   alongside Microsoft sign-in in **Accounts**.

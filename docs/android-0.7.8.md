@@ -11,6 +11,14 @@ panel beside the overview: the account, the version and profile, the mods enable
 **Launch** button; the installation's stages and progress stay on the same page. The pages
 keep their actions, settings and keyboard/controller focus order.
 
+## Importing from another Horizon app
+
+Setup > **Import from another Horizon app** opens Android's folder picker at the official
+app's Files folder. The worlds, settings (options, graphics, touch and keypad layouts) and
+mods, resource and shader packs it shows are copied into this app's profile. No world or
+add-on is overwritten; replaced settings keep a `.before-import` copy. Accounts and the
+downloaded Minecraft files are not exposed by any app, so they stay where they are.
+
 ## Native mods (.hnmod)
 
 `.hnmod` native mods can be downloaded from the Horizon catalog, imported from a file

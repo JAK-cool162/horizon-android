@@ -43,6 +43,7 @@ mod osk { pub enum Output { Text(String), Backspace, Enter, Close } }
 #[path = "../../../../crates/horizon-client/src/android/search_queue.rs"] mod search_queue;
 #[path = "../../../../crates/horizon-client/src/android/native_build_plan.rs"] mod native_build_plan;
 #[path = "../../../../crates/horizon-client/src/android/sealed_box.rs"] mod sealed_box;
+#[path = "../../../../crates/horizon-client/src/android/import_plan.rs"] mod import_plan;
 #[path = "../../../../crates/horizon-client/src/android/document_store.rs"] mod document_store;
 #[path = "../../../../crates/horizon-client-render/src/graphics_startup.rs"] mod graphics_startup;
 #[path = "../../../../crates/horizon-client/src/android_resources.rs"] mod android_resources;

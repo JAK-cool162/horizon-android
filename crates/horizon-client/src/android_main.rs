@@ -16,6 +16,10 @@ mod native_build;
 mod native_build_plan;
 #[path = "android/sealed_box.rs"]
 mod sealed_box;
+#[path = "android/data_import.rs"]
+mod data_import;
+#[path = "android/import_plan.rs"]
+mod import_plan;
 // Share the desktop launcher's actual search, compatibility checks, downloads,
 // dependency resolution and Java content porting; GPUI itself is desktop-only.
 // These files are formatted in the launcher's separate Rust 2021 workspace.

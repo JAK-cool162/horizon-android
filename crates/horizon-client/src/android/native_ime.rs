@@ -33,6 +33,7 @@ enum Command {
     Capture(bool),
     Bounds,
     ImportDocument,
+    ImportTree,
     Screen(bool, bool),
 }
 struct Ui {
@@ -368,6 +369,50 @@ impl Ui {
                     let _ = env.exception_clear();
                     log::warn!("Document picker: {error}");
                     crate::documents::picker_failed("No Android document picker is available");
+                }
+            }
+            Command::ImportTree => {
+                let result = (|| -> jni::errors::Result<()> {
+                    let action =
+                        JObject::from(env.new_string("android.intent.action.OPEN_DOCUMENT_TREE")?);
+                    let intent = env.new_object(
+                        "android/content/Intent",
+                        "(Ljava/lang/String;)V",
+                        &[JValue::Object(&action)],
+                    )?;
+                    // Start at the official app's folder when it is installed.
+                    let authority = JObject::from(env.new_string("dev.horizon.android.documents")?);
+                    let root = JObject::from(env.new_string(crate::document_store::ROOT)?);
+                    let start = env
+                        .call_static_method(
+                            "android/provider/DocumentsContract",
+                            "buildDocumentUri",
+                            "(Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
+                            &[JValue::Object(&authority), JValue::Object(&root)],
+                        )?
+                        .l()?;
+                    let key = JObject::from(env.new_string("android.provider.extra.INITIAL_URI")?);
+                    env.call_method(
+                        &intent,
+                        "putExtra",
+                        "(Ljava/lang/String;Landroid/os/Parcelable;)Landroid/content/Intent;",
+                        &[JValue::Object(&key), JValue::Object(&start)],
+                    )?;
+                    env.call_method(
+                        &self.activity,
+                        "startActivityForResult",
+                        "(Landroid/content/Intent;I)V",
+                        &[
+                            JValue::Object(&intent),
+                            JValue::Int(crate::data_import::REQUEST),
+                        ],
+                    )?;
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    let _ = env.exception_clear();
+                    log::warn!("Folder picker: {error}");
+                    crate::documents::notify("No Android folder picker is available", false);
                 }
             }
             Command::Show(text) => {
@@ -708,6 +753,14 @@ pub fn pick_document() -> bool {
         return false;
     };
     ui.enqueue(Command::ImportDocument);
+    true
+}
+/// Android's folder picker (`OPEN_DOCUMENT_TREE`), for importing from another Horizon app.
+pub fn pick_tree() -> bool {
+    let Some(ui) = UI.get().filter(|ui| !ui.failed.load(Ordering::Acquire)) else {
+        return false;
+    };
+    ui.enqueue(Command::ImportTree);
     true
 }
 

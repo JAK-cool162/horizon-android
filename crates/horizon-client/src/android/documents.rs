@@ -82,6 +82,10 @@ fn notice(text: impl Into<String>, changed: bool) {
         kind: None,
     });
 }
+/// A message for the launcher's status line; `changed` reloads the installed lists.
+pub fn notify(text: impl Into<String>, changed: bool) {
+    notice(text, changed);
+}
 fn imported(text: impl Into<String>, kind: Kind) {
     let text = text.into();
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -138,6 +142,10 @@ pub extern "system" fn document_result(
     result: i32,
     uri: JString<'_>,
 ) {
+    if request == crate::data_import::REQUEST {
+        crate::data_import::tree_result(&mut env, &activity, result, &uri);
+        return;
+    }
     if request != 4101 {
         return;
     }
