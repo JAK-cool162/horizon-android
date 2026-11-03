@@ -14,6 +14,25 @@ The workflow does not publish GitHub Releases or send Discord messages.
 
 ## One-time maintainer setup
 
+### From a phone (no computer)
+
+The **Android dev signing key (one time)** workflow makes the key on GitHub's runner and stores
+it as the secret itself; the key is never shown or downloadable.
+
+1. GitHub > Settings > Developer settings > Fine-grained tokens > Generate: repository access
+   **only this fork**, permission **Secrets: Read and write**. Copy the token.
+2. The fork > Settings > Secrets and variables > Actions > New repository secret: name
+   `DEV_KEY_SETUP_TOKEN`, the token as its value.
+3. Actions > **Android dev signing key (one time)** > Run workflow (branch `android`).
+4. Delete the `DEV_KEY_SETUP_TOKEN` secret and the token. Then Actions > **Android dev APKs** >
+   Run workflow builds the APK.
+
+The key has no backup this way: if the secret is ever replaced, installed dev builds need a
+reinstall. With a computer, the commands below keep a copy.
+
+### With a computer
+
+
 Create a **new, dedicated dev key**, not the release signing key. In PowerShell:
 
 ```powershell
@@ -26,6 +45,11 @@ In repository Settings → Secrets and variables → Actions, add
 of this key outside the repository. The password/alias above match the existing
 build configuration. Clear the clipboard afterwards. Never attach the key to an
 issue, artifact, release or message.
+
+On Linux or macOS: `keytool -genkeypair -keystore horizon-ci-dev.keystore -storepass android
+-keypass android -alias androiddebugkey -keyalg RSA -validity 10000 -dname "CN=Horizon Android
+Dev CI"`, then `base64 -w0 horizon-ci-dev.keystore` (macOS: `base64 -i horizon-ci-dev.keystore`)
+gives the secret's value.
 
 The workflow fails early if the secret is absent. Keeping the same key permits
 in-place updates between CI dev builds; replacing it requires reinstalling the

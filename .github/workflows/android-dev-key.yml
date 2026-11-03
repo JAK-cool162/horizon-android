@@ -1,0 +1,45 @@
+name: Android dev signing key (one time)
+
+# Creates the dedicated dev signing key on the runner and stores it straight into the
+# ANDROID_DEV_KEYSTORE_BASE64 secret, so the Android dev APKs workflow can sign. The key is
+# never printed or uploaded. Needs a DEV_KEY_SETUP_TOKEN secret: a fine-grained token for this
+# repository with "Secrets: read and write" (delete both afterwards). docs/android-dev-builds.md.
+on:
+  workflow_dispatch:
+    inputs:
+      replace:
+        description: Replace an existing key (installed dev builds then need a reinstall)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  key:
+    if: github.ref == 'refs/heads/android'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create the key and store it as a repository secret
+        env:
+          GH_TOKEN: ${{ secrets.DEV_KEY_SETUP_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          REPLACE: ${{ inputs.replace }}
+          EXISTING: ${{ secrets.ANDROID_DEV_KEYSTORE_BASE64 != '' }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Add the DEV_KEY_SETUP_TOKEN secret first (docs/android-dev-builds.md)"
+            exit 1
+          fi
+          if [ "$EXISTING" = "true" ] && [ "$REPLACE" != "true" ]; then
+            echo "::error::ANDROID_DEV_KEYSTORE_BASE64 exists already; run with replace to make a new key"
+            exit 1
+          fi
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          keytool -genkeypair -keystore "$dir/dev.keystore" -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -validity 10000 -dname "CN=Horizon Android Dev CI" \
+            > /dev/null 2>&1
+          base64 -w0 "$dir/dev.keystore" | gh secret set ANDROID_DEV_KEYSTORE_BASE64 --repo "$REPOSITORY"
+          echo "Stored ANDROID_DEV_KEYSTORE_BASE64. Delete DEV_KEY_SETUP_TOKEN (and the token itself) now."
