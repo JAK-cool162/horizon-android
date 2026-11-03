@@ -366,21 +366,39 @@ def mixins_tool(cache: Path, rev: str) -> Path:
     return binary
 
 
+def repin(mixin: str, revision: str) -> str:
+    """A mixin manifest whose `[compatibility] horizon_revision` is `revision`, as the launcher's
+    build does for mods on the hook points and for mods built anyway on another commit."""
+    line = f'horizon_revision = "{revision}"'
+    pinned = re.sub(r'(?m)^(\s*)horizon_revision\s*=\s*"[^"\n]*"', lambda m: m.group(1) + line, mixin)
+    if pinned != mixin or line in mixin:
+        return pinned
+    if re.search(r'(?m)^\[compatibility\]\s*$', mixin):
+        return re.sub(r'(?m)^\[compatibility\]\s*$', '[compatibility]\n' + line, mixin, count=1)
+    return mixin.rstrip('\n') + f'\n\n[compatibility]\n{line}\n'
+
+
 def stage(result: Plan, tree: Tree, out: Path, cache: Path) -> None:
     """The mods applied to a copy of this checkout, into `out`."""
     work = cache / 'work'
     mods = work / 'mods'
     if mods.exists():
         shutil.rmtree(mods)
+    # horizon-mixins applies a mod only on the commit its mixin names: every mod here was
+    # accepted for this source (hook points, or built anyway), so it names this checkout's.
+    revision = head_commit(ROOT)
     for mod in result.build:
         for name, content in mod.files.items():
             if name == MANIFEST:
                 continue
+            if name == f'mixins/{mod.id}/horizon-mixin.toml':
+                content = repin(content.decode('utf-8'), revision).encode()
             target = mods / name[len('mixins/'):]
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
     source = work / 'source'
     copy_tree(ROOT, source_files(ROOT), source)
+    (source / '.horizon-revision').write_text(revision)
     rev = newest(cache, {tree.mixins_rev, *(m.mixins for m in result.build if m.mixins)})
     tool = mixins_tool(cache, rev)
     # horizon-mixins reads the workspace with offline, locked cargo metadata.

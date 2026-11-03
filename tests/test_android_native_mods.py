@@ -155,6 +155,23 @@ class AuthoringTests(unittest.TestCase):
                     tool.new_mod(bad, Path(temporary) / 'other')
 
 
+class RepinTests(unittest.TestCase):
+    NEW = 'f' * 40
+
+    def test_the_build_commit_replaces_the_tested_one(self):
+        mixin = f'[mod]\nid = "a"\n\n[compatibility]\nhorizon_revision = "{REV}"\n\n[[module]]\nid = "m"\n'
+        pinned = tool.repin(mixin, self.NEW)
+        self.assertEqual(tool.tomllib.loads(pinned)['compatibility']['horizon_revision'], self.NEW)
+        self.assertEqual(tool.tomllib.loads(pinned)['module'], [{'id': 'm'}])
+
+    def test_a_mixin_without_a_commit_gets_one(self):
+        for mixin in ('[mod]\nid = "a"\n', '[mod]\nid = "a"\n[compatibility]\n'):
+            with self.subTest(mixin):
+                pinned = tool.tomllib.loads(tool.repin(mixin, self.NEW))
+                self.assertEqual(pinned['compatibility']['horizon_revision'], self.NEW)
+                self.assertEqual(pinned['mod']['id'], 'a')
+
+
 class CommandTests(unittest.TestCase):
     def run_tool(self, *args):
         with tempfile.TemporaryDirectory() as temporary:
