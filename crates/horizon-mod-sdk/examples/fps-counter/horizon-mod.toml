@@ -6,3 +6,5 @@ authors = ["Horizon Android"]
 api = "0.1"
 side = "client"
 capabilities = ["hud", "render"]
+# The frame statistics are in the render interface, which may still change.
+experimental = ["render"]
