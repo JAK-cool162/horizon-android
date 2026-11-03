@@ -1261,6 +1261,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fps-counter"
+version = "0.1.0"
+dependencies = [
+ "horizon-mod-sdk",
+]
+
+[[package]]
 name = "fps-overlay"
 version = "1.0.0"
 dependencies = [

@@ -1,0 +1,31 @@
+# The counter shows in the top-right corner; /fps hides and shows it, /fps lows adds a line.
+# The sandbox has no frames, so it reads 0.
+
+[[step]]
+ticks = 1
+expect.panel = ["0 FPS"]
+expect.corner = "top-right"
+
+[[step]]
+command = "fps lows"
+expect.feedback = "Slowest frame and 1% low shown"
+
+[[step]]
+ticks = 1
+expect.panel = ["0 FPS", "min 0  1% 0"]
+
+[[step]]
+command = "fps"
+expect.feedback = "FPS counter hidden"
+
+[[step]]
+ticks = 1
+expect.panel = []
+
+[[step]]
+command = "fps"
+expect.feedback = "FPS counter shown"
+
+[[step]]
+ticks = 1
+expect.panel = ["0 FPS", "min 0  1% 0"]

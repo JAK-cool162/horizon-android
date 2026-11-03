@@ -1,0 +1,8 @@
+id = "fps_counter"
+name = "FPS Counter (WebAssembly)"
+version = "0.1.0"
+description = "Frames per second in the top-right corner, with the slowest frame and the 1% low after /fps lows. /fps hides or shows it. A sandboxed mod: it loads without rebuilding the game."
+authors = ["Horizon Android"]
+api = "0.1"
+side = "client"
+capabilities = ["hud", "render"]

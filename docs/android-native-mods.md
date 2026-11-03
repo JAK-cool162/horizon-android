@@ -5,6 +5,31 @@ changes the game before it is compiled. It is not a plugin, and a phone has no c
 so a native mod plays only in an APK built with it. Sandboxed `.hmod` mods still install
 and run without a rebuild.
 
+## Mods that load without a rebuild
+
+Horizon Android also runs **sandboxed code mods**: a `.hmod` whose code is WebAssembly. The
+game loads it at runtime, so there is no APK to build: Mods > **Import file**, then turn it
+on in Installed (64-bit phones). One `.hmod` works on every phone and on desktop. It can do
+what its declared capabilities allow, through the game's API
+([`crates/horizon-mod-sdk/wit/horizon.wit`](../crates/horizon-mod-sdk/wit/horizon.wit)):
+the HUD and its corners, frame statistics, zoom, keys and the use button, its own screen
+and settings page, chat, commands, storage, recipes, and on servers players and blocks.
+It cannot patch the game's code the way a `.hnmod` can.
+
+On a computer, from this repository:
+
+```sh
+cargo run -p cargo-horizon-mod -- horizon-mod new my_mod --template code
+cd my_mod
+cargo run --manifest-path ../Cargo.toml -p cargo-horizon-mod -- horizon-mod test    # the sandbox runs tests/*.toml
+cargo run --manifest-path ../Cargo.toml -p cargo-horizon-mod -- horizon-mod build   # target/horizon-mod/my_mod.hmod
+```
+
+[`crates/horizon-mod-sdk/examples/fps-counter`](../crates/horizon-mod-sdk/examples/fps-counter)
+is such a mod: the frame rate in the top-right corner, `/fps` to hide it and `/fps lows` for
+the slowest frame and the 1% low. Pick this kind of mod when the API covers it, and a
+`.hnmod` when it has to change the game itself.
+
 ## In the launcher
 
 - **Get one.** The Mods tab lists the registry's native mods with an `.hnmod` badge and a
