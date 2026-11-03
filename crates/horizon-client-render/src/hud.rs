@@ -73,6 +73,9 @@ pub struct HudAtlas {
     /// and the mcmeta-driven frame list, re-uploaded into the rect as the
     /// frames turn (vanilla's stitched atlas animates all of these).
     pub sprite_animations: Vec<(Rect, crate::sprites::SpriteAnimation)>,
+    /// Resource packs' animated backgrounds behind screens (`gui_backgrounds`): each sprite's
+    /// atlas region and its frames, copied in as they turn.
+    pub backgrounds: Vec<(Rect, std::sync::Arc<crate::gui_backgrounds::Frames>)>,
     /// The default font (bitmap sheets in this atlas, unifont rasterized on demand).
     pub font: crate::font::Font,
     /// `misc/enchanted_glint_item` as its own image: vanilla's `GlintSampler`
@@ -475,6 +478,7 @@ impl HudAtlas {
             flags: HashMap::new(),
             object_skins: HashMap::new(),
             sprite_animations: Vec::new(),
+            backgrounds: Vec::new(),
             glint: (vec![0; 4], 1, 1),
             glint_armor: (vec![0; 4], 1, 1),
             white,
@@ -696,7 +700,13 @@ impl HudAtlas {
             let s = p.to_string_lossy();
             !s.contains("title/background") && !s.contains("realms") && !s.contains("presets")
         });
-        type Decoded = (PackedImage, Option<TextureFlags>, Option<(u32, u32)>, bool);
+        type Decoded = (
+            PackedImage,
+            Option<TextureFlags>,
+            Option<(u32, u32)>,
+            bool,
+            Option<std::sync::Arc<crate::gui_backgrounds::Frames>>,
+        );
         let decode_one = |path: &PathBuf| -> Option<Decoded> {
             let name = match path.strip_prefix(&textures) {
                 Ok(rel) => rel.with_extension("").to_string_lossy().replace('\\', "/"),
@@ -717,6 +727,26 @@ impl HudAtlas {
                 .map_err(|e| log::warn!("skipped GUI texture {}: {e}", path.display()))
                 .ok()?;
             let mcmeta = fs::read_to_string(path.with_extension("png.mcmeta")).ok();
+            // A pack's animated background behind screens: its first frame here, at its own
+            // size, and its frames for the HUD to turn.
+            if name.starts_with(crate::gui_backgrounds::DIR) {
+                let (w, h, pixels) = image;
+                let frames = mcmeta
+                    .as_deref()
+                    .and_then(|m| crate::gui_backgrounds::from_strip(w, h, &pixels, m));
+                return match frames {
+                    Some(f) => Some((
+                        (name, f.width, f.height, f.frames[0].clone()),
+                        None,
+                        None,
+                        false,
+                        Some(std::sync::Arc::new(f)),
+                    )),
+                    None => (w <= crate::gui_backgrounds::MAX_WIDTH
+                        && h <= crate::gui_backgrounds::MAX_HEIGHT)
+                        .then_some(((name, w, h, pixels), None, None, false, None)),
+                };
+            }
             let animation = animation_of(mcmeta.as_deref());
             // An animated strip keeps its first frame.
             let frames = name.starts_with("block/") || name.starts_with("item/");
@@ -742,6 +772,7 @@ impl HudAtlas {
                 flags,
                 gui_size,
                 animated,
+                None,
             ))
         };
         let threads = std::thread::available_parallelism().map_or(2, |n| n.get());
@@ -761,8 +792,12 @@ impl HudAtlas {
         let mut flags = HashMap::new();
         let mut gui_sizes = HashMap::new();
         let mut animated: Vec<String> = Vec::new();
+        let mut background_frames = Vec::new();
         let mut images: Vec<PackedImage> = Vec::with_capacity(decoded.len());
-        for (image, image_flags, gui_size, is_animated) in decoded {
+        for (image, image_flags, gui_size, is_animated, background) in decoded {
+            if let Some(frames) = background {
+                background_frames.push((image.0.clone(), frames));
+            }
             if let Some(f) = image_flags {
                 flags.insert(image.0.clone(), f);
             }
@@ -891,6 +926,10 @@ impl HudAtlas {
             }
             sprite_animations.push((rect, animation));
         }
+        let backgrounds = background_frames
+            .into_iter()
+            .filter_map(|(name, frames)| sprites.get(&name).map(|rect| (*rect, frames)))
+            .collect();
         let white = sprites["horizon/white"];
         let glint = Self::glint_texture(root, defaults, "enchanted_glint_item");
         let glint_armor = Self::glint_texture(root, defaults, "enchanted_glint_armor");
@@ -911,6 +950,7 @@ impl HudAtlas {
             translucent,
             flags,
             sprite_animations,
+            backgrounds,
             glint,
             glint_armor,
             text_shader: None,
@@ -1765,6 +1805,8 @@ impl HudUniform {
 }
 pub struct HudRenderer {
     pub sprite_animations: Vec<(Rect, crate::sprites::SpriteAnimation, (usize, usize, u32))>,
+    /// The atlas's animated backgrounds, with the frame each shows now.
+    pub backgrounds: Vec<(Rect, std::sync::Arc<crate::gui_backgrounds::Frames>, usize)>,
     /// The shared atlas texture, for run-time glyph uploads.
     pub atlas_texture: Option<wgpu::Texture>,
     pipeline: wgpu::RenderPipeline,
@@ -2001,6 +2043,7 @@ impl HudRenderer {
         Ok(Self {
             atlas_texture: None,
             sprite_animations: Vec::new(),
+            backgrounds: Vec::new(),
             pipeline,
             invert_pipeline,
             additive_pipeline,
@@ -2078,6 +2121,33 @@ impl HudRenderer {
                 &pixels,
             );
             *previous = state;
+        }
+        // Resource packs' backgrounds: the frame of this tick, when it changed.
+        for (rect, frames, shown) in &mut self.backgrounds {
+            let frame = frames.frame_at(tick);
+            if frame == *shown {
+                continue;
+            }
+            if rect.texels((texture.width(), texture.height())) != (frames.width, frames.height) {
+                continue;
+            }
+            uploads.texture(
+                encoder,
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: (rect.u0 * texture.width() as f32).round() as u32,
+                        y: (rect.v0 * texture.height() as f32).round() as u32,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                frames.width,
+                frames.height,
+                &frames.frames[frame],
+            );
+            *shown = frame;
         }
     }
     /// Stage `patches` into the shared atlas texture.
@@ -2382,6 +2452,33 @@ mod tests {
             Some(r#"{"animation": {"frames": [1, 0]}}"#),
         );
         root
+    }
+    #[test]
+    fn a_background_strip_packs_one_frame_at_its_size_and_keeps_its_frames() {
+        let root = std::env::temp_dir().join(format!("horizon-atlas-bg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join(format!(
+            "assets/minecraft/textures/{}",
+            crate::gui_backgrounds::DIR
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        // Two 8 x 4 frames, red then green, 2 ticks each: not square, unlike block strips.
+        write_strip(
+            &dir.join("inventory.png"),
+            8,
+            8,
+            &[[255, 0, 0, 255], [0, 255, 0, 255]],
+            Some(r#"{"animation": {"width": 8, "height": 4, "frametime": 2}}"#),
+        );
+        let atlas = HudAtlas::build(&root).unwrap();
+        let rect = atlas.sprites[&format!("{}inventory", crate::gui_backgrounds::DIR)];
+        assert_eq!(rect.texels((atlas.width, atlas.height)), (8, 4));
+        assert_eq!(texel_at(&atlas, rect, 0, 0), [255, 0, 0, 255]);
+        let (animated, frames) = &atlas.backgrounds[0];
+        assert_eq!((animated.u0, animated.v0), (rect.u0, rect.v0));
+        assert_eq!(frames.ticks, [2, 2]);
+        assert_eq!(&frames.frames[1][..4], &[0, 255, 0, 255]);
+        fs::remove_dir_all(&root).unwrap();
     }
     fn texel_at(atlas: &HudAtlas, rect: Rect, x: u32, y: u32) -> [u8; 4] {
         let px = (rect.u0 * atlas.width as f32).round() as u32 + x;

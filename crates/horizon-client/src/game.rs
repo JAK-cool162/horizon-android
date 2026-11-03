@@ -268,6 +268,7 @@ mod respawn_anchor;
 mod saves_control;
 mod saving;
 mod scoreboard;
+mod screen_backgrounds;
 mod screen_info;
 mod screens;
 mod sculk;
@@ -8734,6 +8735,7 @@ impl Game<'_> {
                 batch.height,
                 rgba(16, 16, 16, 160),
             );
+            self.draw_screen_background(batch);
             let part = |batch: &mut HudBatch,
                         name: &str,
                         sx: f32,
@@ -13967,6 +13969,7 @@ impl Game<'_> {
             batch.height,
             rgba(16, 16, 16, 160),
         );
+        self.draw_named_background(batch, &["creative", "inventory", "container"]);
         // Unselected tabs behind the panel, then the panel, then the selected tab.
         for (i, t) in tabs.iter().enumerate() {
             if i != selected && self.creative_screen.on_page(t) {
@@ -19504,6 +19507,11 @@ fn build_renderer(
         .iter()
         .map(|(rect, animation)| (*rect, animation.clone(), (usize::MAX, 0, 0)))
         .collect();
+    renderer.hud.backgrounds = atlas
+        .backgrounds
+        .iter()
+        .map(|(rect, frames)| (*rect, frames.clone(), usize::MAX))
+        .collect();
     renderer
         .hud
         .set_text_shader(&renderer.device, atlas.text_shader.as_deref());
@@ -19565,6 +19573,11 @@ pub(crate) fn loading_renderer(
             .sprite_animations
             .iter()
             .map(|(rect, animation)| (*rect, animation.clone(), (usize::MAX, 0, 0)))
+            .collect();
+        renderer.hud.backgrounds = atlas
+            .backgrounds
+            .iter()
+            .map(|(rect, frames)| (*rect, frames.clone(), usize::MAX))
             .collect();
     }
     Ok(renderer)
@@ -20227,6 +20240,12 @@ impl Loading {
                 .sprite_animations
                 .iter()
                 .map(|(rect, animation)| (*rect, animation.clone(), (usize::MAX, 0, 0)))
+                .collect();
+            renderer.hud.backgrounds = gui
+                .atlas
+                .backgrounds
+                .iter()
+                .map(|(rect, frames)| (*rect, frames.clone(), usize::MAX))
                 .collect();
             renderer
         } else {

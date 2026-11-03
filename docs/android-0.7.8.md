@@ -63,6 +63,24 @@ command, as Fabric's callbacks do. Examples: the `extras_api` native mod (versio
 cancellable callbacks, player helpers, and the window's video options for client mods) and the
 `welcome-kit`, `spawn-guard` and `video-settings` mods that use it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
+## GIF backgrounds behind screens
+
+A resource pack can put an animated GIF behind screens, a Horizon feature off unless a pack
+gives one: `assets/minecraft/textures/gui/sprites/horizon/background/<screen>.gif`, where
+`<screen>` is `menu` (menus), `inventory`, `creative`, `crafting_table`, `chest`, `furnace`,
+`brewing_stand`, `crafter`, a workstation (`enchanting_table`, `anvil`, `grindstone`,
+`smithing_table`, `stonecutter`, `cartography_table`, `loom`, `beacon`, `villager`), or
+`container` for every container screen without its own. The pack overlay turns the GIF into
+an animated strip and its `.png.mcmeta` (an animated PNG strip works as it is); the GUI atlas
+keeps one frame's region and copies frames in as they turn, on ticks. The GIF covers the
+screen, cropped to its shape, over the dark fill and under the panel. Frames up to
+1024 x 512, about 48 MB and 240 frames at most (larger ones are scaled down, longer ones cut).
+
+## A build with only its native mods
+
+`HORIZON_ANDROID_BUNDLED_MODS=none` at build time leaves the fixed Android bundle (Zoom,
+Minimap, Recipes, SmartF3) out of an APK: an APK with only the native mods built into it.
+
 ## Server menus
 
 Text a server makes clickable with a `custom` click event (`ClickEvent.Custom`, since 1.21.6:

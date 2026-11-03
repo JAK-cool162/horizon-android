@@ -809,7 +809,50 @@ fn build_overlay_uncached(
         &filters,
         &zips,
         dependencies,
-    )
+    )?;
+    write_gif_backgrounds(&files, &zips, out);
+    Ok(())
+}
+/// Horizon: a pack's GIF background (`gui_backgrounds`) written beside it as the strip and
+/// `.mcmeta` the GUI atlas animates; the pack's own `.png` of that name wins.
+fn write_gif_backgrounds(
+    files: &BTreeMap<String, (usize, Provided)>,
+    zips: &[Option<Zip>],
+    out: &Path,
+) {
+    let prefix = format!("assets/minecraft/textures/{}", crate::gui_backgrounds::DIR);
+    for (name, (owner, (path, inner))) in files {
+        let Some(stem) = name
+            .strip_prefix(&prefix)
+            .and_then(|n| n.strip_suffix(".gif"))
+        else {
+            continue;
+        };
+        let png = format!("{prefix}{stem}.png");
+        if files.contains_key(&png) {
+            continue;
+        }
+        let bytes = match path {
+            Some(p) => fs::read(p).ok(),
+            None => zips
+                .get(*owner)
+                .and_then(Option::as_ref)
+                .and_then(|z| z.read(inner).ok()),
+        };
+        let Some(bytes) = bytes else {
+            continue;
+        };
+        match crate::gui_backgrounds::gif_to_strip(&bytes) {
+            Ok((strip, mcmeta)) => {
+                let written = fs::write(out.join(&png), strip)
+                    .and_then(|()| fs::write(out.join(format!("{png}.mcmeta")), mcmeta));
+                if let Err(e) = written {
+                    log::warn!("Horizon: the background {name} could not be written: {e}");
+                }
+            }
+            Err(e) => log::warn!("Horizon: the background {name} is not a GIF it can read: {e}"),
+        }
+    }
 }
 /// Files vanilla loads from every pack in turn (`getResourceStack`) rather
 /// than from the top pack only.
@@ -1406,6 +1449,49 @@ mod tests {
             Some(Merge::Atlas)
         );
         assert_eq!(merge_kind("assets/minecraft/models/block/stone.json"), None);
+    }
+    #[test]
+    fn a_packs_gif_background_becomes_a_strip_the_gui_atlas_animates() {
+        let base = std::env::temp_dir().join(format!("horizon-packs-gif-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vanilla = base.join("vanilla");
+        fs::create_dir_all(vanilla.join("assets/minecraft/textures/block")).unwrap();
+        let pack_dir = base.join("packs/Backgrounds");
+        let dir = pack_dir.join(format!(
+            "assets/minecraft/textures/{}",
+            crate::gui_backgrounds::DIR
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            pack_dir.join("pack.mcmeta"),
+            br#"{"pack":{"description":"gif","pack_format":97}}"#,
+        )
+        .unwrap();
+        let mut gif = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut gif);
+            for color in [[255u8, 0, 0, 255], [0, 0, 255, 255]] {
+                let frame = image::RgbaImage::from_pixel(6, 3, image::Rgba(color));
+                let delay = image::Delay::from_numer_denom_ms(100, 1);
+                encoder
+                    .encode_frame(image::Frame::from_parts(frame, 0, 0, delay))
+                    .unwrap();
+            }
+        }
+        fs::write(dir.join("crafting_table.gif"), gif).unwrap();
+        let packs = discover(&vanilla, &base.join("packs"));
+        let out = base.join("overlay");
+        build_overlay(&vanilla, &packs, &out).unwrap();
+        let png = out.join(format!(
+            "assets/minecraft/textures/{}crafting_table.png",
+            crate::gui_backgrounds::DIR
+        ));
+        let (w, h, pixels) = crate::hud::decode(&png).unwrap();
+        assert_eq!((w, h), (6, 6));
+        let mcmeta = fs::read_to_string(png.with_extension("png.mcmeta")).unwrap();
+        let frames = crate::gui_backgrounds::from_strip(w, h, &pixels, &mcmeta).unwrap();
+        assert_eq!((frames.width, frames.height, frames.ticks.len()), (6, 3, 2));
+        fs::remove_dir_all(&base).unwrap();
     }
     #[test]
     fn overlay_layers_packs_over_vanilla() {

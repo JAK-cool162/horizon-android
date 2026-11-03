@@ -37,6 +37,8 @@ miniz_oxide = "0.8"
 naga = { version = "30.0.1", features = ["wgsl-in", "glsl-in", "hlsl-out"] }
 half = "2"
 png = "0.18"
+# Resource packs' GIF backgrounds behind screens (gui_backgrounds.rs).
+image = { version = "0.25", default-features = false, features = ["gif"] }
 pollster = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }

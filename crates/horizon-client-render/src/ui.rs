@@ -524,6 +524,47 @@ pub fn menu_background(
     } else {
         batch.fill(atlas, x, y, w, h, rgba(0, 0, 0, 160));
     }
+    // Horizon: a resource pack's background for menus, over the vanilla one.
+    pack_background(batch, atlas, &["menu"], x, y, w, h);
+}
+/// Horizon: a resource pack's background (`gui_backgrounds`) for the first of `screens` it
+/// has, over `x y w h`, cropped to cover it with its own shape; false when no pack gives one.
+pub fn pack_background(
+    batch: &mut HudBatch,
+    atlas: &HudAtlas,
+    screens: &[&str],
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> bool {
+    let found = screens.iter().find_map(|screen| {
+        let name = format!("{}{screen}", crate::gui_backgrounds::DIR);
+        atlas.sprites.get(&name).copied()
+    });
+    let Some(r) = found else {
+        return false;
+    };
+    if r.w == 0 || r.h == 0 || w <= 0.0 || h <= 0.0 {
+        return false;
+    }
+    // The largest centred part of the image with the area's shape.
+    let (image, area) = (r.w as f32 / r.h as f32, w / h);
+    let (fx, fy) = if image > area {
+        (area / image, 1.0)
+    } else {
+        (1.0, image / area)
+    };
+    let (du, dv) = (r.u1 - r.u0, r.v1 - r.v0);
+    let cropped = crate::hud::Rect {
+        u0: r.u0 + du * (1.0 - fx) / 2.0,
+        u1: r.u1 - du * (1.0 - fx) / 2.0,
+        v0: r.v0 + dv * (1.0 - fy) / 2.0,
+        v1: r.v1 - dv * (1.0 - fy) / 2.0,
+        ..r
+    };
+    batch.rect_uv(x, y, w, h, cropped, u32::MAX);
+    true
 }
 /// Header and footer separators of list screens.
 pub fn separators(

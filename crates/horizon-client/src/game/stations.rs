@@ -1475,6 +1475,7 @@ impl Game<'_> {
                 batch.height,
                 rgba(16, 16, 16, 160),
             );
+            self.draw_screen_background(batch);
         }
         let inventory_label = self.translate("container.inventory", "Inventory");
         if brewing {

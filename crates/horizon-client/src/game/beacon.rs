@@ -470,6 +470,7 @@ impl Game<'_> {
             batch.height,
             rgba(16, 16, 16, 160),
         );
+        self.draw_screen_background(batch);
         if let Some(mut r) = atlas.sprites.get("gui/container/beacon").copied() {
             let (du, dv) = ((r.u1 - r.u0) / r.w as f32, (r.v1 - r.v0) / r.h as f32);
             r.u1 = r.u0 + 230.0 * du;

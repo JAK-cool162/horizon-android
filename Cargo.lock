@@ -1812,6 +1812,7 @@ dependencies = [
  "horizon-theme",
  "horizon-threads",
  "horizon-world",
+ "image",
  "log",
  "miniz_oxide 0.8.9",
  "naga",
