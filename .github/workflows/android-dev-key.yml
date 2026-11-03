@@ -1,9 +1,11 @@
 name: Android dev signing key (one time)
+run-name: Android dev signing key · ${{ inputs.request || 'manual' }}
 
 # Creates the dedicated dev signing key on the runner and stores it straight into the
 # ANDROID_DEV_KEYSTORE_BASE64 secret, so the Android dev APKs workflow can sign. The key is
 # never printed or uploaded. Needs a DEV_KEY_SETUP_TOKEN secret: a fine-grained token for this
-# repository with "Secrets: read and write" (delete both afterwards). docs/android-dev-builds.md.
+# repository with "Secrets: read and write" (delete both afterwards). The app's Build APK sets
+# that secret itself, runs this once and removes it. docs/android-dev-builds.md.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +13,10 @@ on:
         description: Replace an existing key (installed dev builds then need a reinstall)
         type: boolean
         default: false
+      request:
+        description: A tag for the run's name (the app's in-app setup finds its run by it)
+        type: string
+        default: ''
 
 permissions:
   contents: read

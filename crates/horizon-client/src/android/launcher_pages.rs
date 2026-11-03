@@ -69,6 +69,8 @@ pub(super) enum Action {
     ConfirmBuildNative,
     InstallNative,
     OpenNativeRun,
+    OpenTokenPage,
+    PasteToken,
 }
 
 pub(super) fn button(
@@ -1389,27 +1391,55 @@ impl Launcher {
                 false,
             );
         }
-        let status = self.error.as_deref().unwrap_or(&self.catalog.status);
-        for (i, line) in status
-            .chars()
-            .collect::<Vec<_>>()
-            .chunks(110)
-            .take(2)
-            .enumerate()
-        {
-            ui.text(
-                Face::Regular,
-                14.0,
-                32.0,
-                h - 47.0 + i as f32 * 18.0,
-                color::MUTED,
-                &ui.fit_text(
+        // The latest message, as a snackbar: on a raised plate, in the text colour.
+        let status = self.error.as_deref().unwrap_or(&self.catalog.status).trim();
+        if !status.is_empty() {
+            let width = (w - 200.0).max(40.0);
+            let lines: Vec<String> = status
+                .chars()
+                .collect::<Vec<_>>()
+                .chunks(110)
+                .take(2)
+                .map(|line| {
+                    ui.fit_text(
+                        Face::Regular,
+                        14.0,
+                        &line.iter().collect::<String>(),
+                        width - 32.0,
+                    )
+                })
+                .collect();
+            let text_w = lines
+                .iter()
+                .map(|l| ui.measure(Face::Regular, 14.0, l))
+                .fold(0.0f32, f32::max);
+            let plate_h = 14.0 + lines.len() as f32 * 18.0;
+            ui.rounded(
+                24.0,
+                h - 30.0 - plate_h,
+                (text_w + 32.0).min(width),
+                plate_h + 8.0,
+                12.0,
+                if self.error.is_some() {
+                    color::BAD
+                } else {
+                    color::RAISED
+                },
+            );
+            for (i, line) in lines.iter().enumerate() {
+                ui.text(
                     Face::Regular,
                     14.0,
-                    &line.iter().collect::<String>(),
-                    (w - 210.0).max(40.0),
-                ),
-            );
+                    40.0,
+                    h - 30.0 - plate_h + 7.0 + i as f32 * 18.0,
+                    if self.error.is_some() {
+                        color::ON_BAD
+                    } else {
+                        color::TEXT
+                    },
+                    line,
+                );
+            }
         }
         button(
             &mut ui,
@@ -1772,12 +1802,47 @@ impl Launcher {
                     self.chooser = Some(super::chooser::Chooser::confirm_delete(item.file.clone()));
                 }
             }
-            Some(Action::BuildNative) => match self.catalog.native_build_inputs(&self.home) {
-                Ok((repo, _, mods)) => {
-                    self.chooser = Some(super::chooser::Chooser::confirm_build(mods.len(), repo));
+            Some(Action::BuildNative) => {
+                let repo = crate::native_build::repository(&self.catalog.config.github_repo);
+                if repo.is_none() || !self.catalog.github_token_saved {
+                    // Not set up: the steps on a screen of their own, not the status line.
+                    self.chooser = Some(super::chooser::Chooser::setup_build(
+                        repo,
+                        self.catalog.github_token_saved,
+                        None,
+                    ));
+                } else {
+                    match self.catalog.native_build_inputs(&self.home) {
+                        Ok((repo, _, mods)) => {
+                            self.chooser =
+                                Some(super::chooser::Chooser::confirm_build(mods.len(), repo));
+                        }
+                        Err(e) => self.catalog.status = e,
+                    }
                 }
-                Err(e) => self.catalog.status = e,
-            },
+            }
+            Some(Action::OpenTokenPage) => {
+                let repo = crate::native_build::repository(&self.catalog.config.github_repo);
+                crate::platform::open_url(&crate::native_build_plan::token_page(repo.as_deref()));
+            }
+            Some(Action::PasteToken) => {
+                let pasted = crate::platform::clipboard_get();
+                let note = match pasted.as_deref().and_then(crate::native_build_plan::token) {
+                    Some(token) => match crate::native_build::save_token(token) {
+                        Ok(()) => {
+                            self.catalog.github_token_saved = true;
+                            "Token saved, encrypted on this phone. Now tap Build APK.".to_owned()
+                        }
+                        Err(e) => format!("Could not save the token: {e}"),
+                    },
+                    None => "The clipboard has no GitHub token: copy it on GitHub first".into(),
+                };
+                self.chooser = Some(super::chooser::Chooser::setup_build(
+                    crate::native_build::repository(&self.catalog.config.github_repo),
+                    self.catalog.github_token_saved,
+                    Some(note),
+                ));
+            }
             Some(Action::ConfirmBuildNative) => {
                 self.chooser = None;
                 self.catalog.build_native(&self.home);
@@ -1843,6 +1908,7 @@ impl Launcher {
             }
             Some(Action::LoginLink) => self.login.open_link(),
             Some(Action::Page(page)) => {
+                self.chooser = None;
                 self.catalog.editing = None;
                 if crate::platform::active() {
                     crate::platform::hide();

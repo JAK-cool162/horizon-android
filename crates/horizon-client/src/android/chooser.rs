@@ -276,6 +276,51 @@ impl Chooser {
             scroll: 0.0,
         }
     }
+    /// The one-time setup of in-app builds, as three steps; `note` says how the last one went.
+    pub(super) fn setup_build(
+        repo: Option<String>,
+        token_saved: bool,
+        note: Option<String>,
+    ) -> Self {
+        let build = match &repo {
+            Some(repo) => (
+                "3. Build APK".to_owned(),
+                format!("On {repo}; Horizon makes the signing key the first time"),
+                Action::BuildNative,
+            ),
+            None => (
+                "3. Set your fork".to_owned(),
+                "Setup > GitHub repository: owner/name".to_owned(),
+                Action::Page(crate::catalog::Page::Settings),
+            ),
+        };
+        Self {
+            title: "Set up APK builds",
+            help: "Phones can't compile mods, so your GitHub fork builds the APK.",
+            device: Some(note.unwrap_or_else(|| "Steps 1 and 2 are needed once.".into())),
+            choices: vec![
+                (
+                    "1. Create a token on GitHub".into(),
+                    "Your fork only; Contents, Actions and Secrets: read and write".into(),
+                    Action::OpenTokenPage,
+                    false,
+                ),
+                (
+                    "2. Paste the token".into(),
+                    if token_saved {
+                        "Saved. Tap again to replace it with the copied one".into()
+                    } else {
+                        "Copy it on GitHub, then tap here".into()
+                    },
+                    Action::PasteToken,
+                    token_saved,
+                ),
+                (build.0, build.1, build.2, false),
+                ("Close".into(), String::new(), Action::Dismiss, false),
+            ],
+            scroll: 0.0,
+        }
+    }
     pub(super) fn confirm_build(count: usize, repo: String) -> Self {
         Self {
             title: "Build native mods?",

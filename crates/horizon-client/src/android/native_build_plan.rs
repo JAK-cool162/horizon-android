@@ -8,6 +8,36 @@ pub const MODS_BRANCH: &str = "native-mods";
 pub const BASE_BRANCH: &str = "android";
 /// The Android dev workflow, which compiles the uploaded mods in (`native_mods` input).
 pub const WORKFLOW: &str = "android-dev.yml";
+/// The one-time workflow that makes the dev signing key on GitHub's runner.
+pub const KEY_WORKFLOW: &str = "android-dev-key.yml";
+/// The secret the dev workflow signs with, and the short-lived one the key workflow reads.
+pub const SIGNING_SECRET: &str = "ANDROID_DEV_KEYSTORE_BASE64";
+pub const SETUP_SECRET: &str = "DEV_KEY_SETUP_TOKEN";
+
+/// Whether `text` looks like a GitHub token (fine-grained `github_pat_` or classic `ghp_`):
+/// what Paste accepts from the clipboard.
+pub fn token(text: &str) -> Option<&str> {
+    let text = text.trim();
+    ((text.starts_with("github_pat_") || text.starts_with("ghp_"))
+        && (20..=255).contains(&text.len())
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    .then_some(text)
+}
+
+/// GitHub's new fine-grained token page, filled in where GitHub reads the parameters: a name,
+/// the fork's owner, and the three permissions a build needs.
+pub fn token_page(repo: Option<&str>) -> String {
+    let mut url =
+        "https://github.com/settings/personal-access-tokens/new?name=Horizon%20Android%20builds\
+        &description=Builds%20APKs%20with%20native%20mods&expires_in=none\
+        &contents=write&actions=write&secrets=write"
+            .to_owned();
+    if let Some((owner, _)) = repo.and_then(|r| r.split_once('/')) {
+        url.push_str("&target_name=");
+        url.push_str(owner);
+    }
+    url
+}
 
 /// `owner/name` of a GitHub repository, as GitHub allows them.
 pub fn repository(text: &str) -> Option<String> {
@@ -114,6 +144,30 @@ pub fn artifact(artifacts: &Value, abi: &str) -> Option<(String, u64)> {
     })
 }
 
+/// Standard base64 decoding (GitHub's secrets public key).
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let text = text.trim().trim_end_matches('=');
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in text.bytes() {
+        acc = acc << 6 | u32::from(value(c)?);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// Standard base64 with padding (the contents API's encoding).
 pub fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -208,6 +262,30 @@ mod tests {
         assert_eq!(artifact(&artifacts, "x86"), None);
     }
     #[test]
+    fn pasted_tokens_and_the_token_page() {
+        assert_eq!(
+            token("  github_pat_11ABCDEFG0123456789_abcdefXYZ\n"),
+            Some("github_pat_11ABCDEFG0123456789_abcdefXYZ")
+        );
+        assert_eq!(
+            token("ghp_0123456789abcdefABCDEF0123456789"),
+            Some("ghp_0123456789abcdefABCDEF0123456789")
+        );
+        for bad in [
+            "",
+            "hello world",
+            "github_pat_",
+            "gho_0123456789abcdef0123",
+            "github_pat_abc def ghijklmnop",
+        ] {
+            assert_eq!(token(bad), None, "{bad}");
+        }
+        let page = token_page(Some("JAK-cool162/horizon-android"));
+        assert!(page.starts_with("https://github.com/settings/personal-access-tokens/new?"));
+        assert!(page.contains("&secrets=write") && page.ends_with("&target_name=JAK-cool162"));
+        assert!(!page.contains(' '));
+    }
+    #[test]
     fn base64_matches_the_standard_vectors() {
         // RFC 4648 section 10.
         for (plain, encoded) in [
@@ -220,6 +298,8 @@ mod tests {
             ("foobar", "Zm9vYmFy"),
         ] {
             assert_eq!(base64(plain.as_bytes()), encoded);
+            assert_eq!(base64_decode(encoded).as_deref(), Some(plain.as_bytes()));
         }
+        assert_eq!(base64_decode("Zm9v!"), None);
     }
 }

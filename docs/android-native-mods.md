@@ -38,17 +38,20 @@ into the profile's **APK builds** folder and opens Android's installer (**Instal
 takes about 40-70 minutes; **View** opens it on GitHub, and you can close Horizon meanwhile:
 it picks the build up again when it opens.
 
-Once, in your fork:
+Once: **Build APK** opens **Set up APK builds** until it has what it needs.
 
-1. **Signing key.** Add the `ANDROID_DEV_KEYSTORE_BASE64` secret
-   ([dev builds](android-dev-builds.md)); every build is signed with it, so each one updates
-   the last. Without it the workflow stops at its first step.
-2. **Token.** GitHub > Settings > Developer settings > Fine-grained tokens: only your fork,
-   with **Contents** and **Actions** read and write. Paste it in Setup > **GitHub token**;
-   it is kept encrypted with the Android Keystore and sent only to GitHub. An empty entry
-   removes it.
-3. **Repository.** Setup > **GitHub repository**: your fork as `owner/name`. An APK built by
-   your fork's workflow already knows it.
+1. **Create a token on GitHub** opens GitHub's fine-grained token page (filled in where GitHub
+   reads the parameters): only your fork, with **Contents**, **Actions** and **Secrets** read
+   and write.
+2. Copy the token on GitHub and tap **Paste the token**: it is kept encrypted with the Android
+   Keystore and sent only to GitHub.
+3. **Build APK**. The fork is the one this APK was built from, or Setup > **GitHub repository**.
+
+The first build also makes the dev signing key: the app seals its token for the fork's
+secrets (libsodium's sealed box, as GitHub requires), runs **Android dev signing key (one
+time)**, which stores `ANDROID_DEV_KEYSTORE_BASE64`, and deletes that temporary secret.
+Every later build is signed with the same key, so each one updates the last. A key made by
+hand ([dev builds](android-dev-builds.md)) is used as it is.
 
 The APK is a dev build (`dev.horizon.android.dev`): it installs beside a stable Horizon
 Android, with its own worlds, and each later dev build updates it. Android asks once to let

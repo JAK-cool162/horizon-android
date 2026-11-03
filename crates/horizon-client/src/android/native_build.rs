@@ -185,6 +185,113 @@ impl Api {
             .map_err(failure)?;
         Ok(r.into_json().unwrap_or(Value::Null))
     }
+    fn delete(&self, path: &str) -> Result<(), String> {
+        match self.request(&self.agent, "DELETE", &self.url(path)).call() {
+            Ok(_) | Err(ureq::Error::Status(404, _)) => Ok(()),
+            Err(e) => Err(failure(e)),
+        }
+    }
+    /// Starts `workflow` on the base branch and finds its run by the `request` tag it is given.
+    fn dispatch(
+        &self,
+        workflow: &str,
+        body: Value,
+        request: &str,
+    ) -> Result<(u64, String), String> {
+        self.send(
+            "POST",
+            &format!("/actions/workflows/{workflow}/dispatches"),
+            body,
+        )?;
+        let runs = format!(
+            "/actions/workflows/{workflow}/runs?event=workflow_dispatch&branch={}&per_page=20",
+            plan::BASE_BRANCH
+        );
+        for _ in 0..36 {
+            std::thread::sleep(Duration::from_secs(5));
+            if let Some(found) = self.get(&runs)?.and_then(|r| plan::find_run(&r, request)) {
+                return Ok(found);
+            }
+        }
+        Err("GitHub did not start the workflow: check Actions on the repository".into())
+    }
+}
+
+/// A tag naming one dispatched run.
+fn request_tag(kind: &str) -> String {
+    format!(
+        "{kind}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    )
+}
+
+/// The signing key the dev workflow needs, made once by the fork's key workflow: the app hands
+/// that workflow its own token as a short-lived, sealed secret and removes it afterwards.
+fn ensure_signing_key(api: &Api, set: &dyn Fn(String)) -> Result<(), String> {
+    let path = format!("/actions/secrets/{}", plan::SIGNING_SECRET);
+    if api
+        .get(&path)
+        .map_err(|e| format!("{e} (the token needs Secrets read and write too)"))?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let text = "Creating your signing key on GitHub (once)...";
+    set(text.into());
+    let key = api
+        .get("/actions/secrets/public-key")?
+        .ok_or("GitHub gave no key for the repository's secrets")?;
+    let key_id = key["key_id"]
+        .as_str()
+        .ok_or("GitHub's secrets key has no id")?;
+    let public: [u8; 32] = key["key"]
+        .as_str()
+        .and_then(plan::base64_decode)
+        .and_then(|k| k.try_into().ok())
+        .ok_or("GitHub's secrets key is not an X25519 key")?;
+    let sealed = crate::sealed_box::seal(&public, api.token.as_bytes())?;
+    let setup = format!("/actions/secrets/{}", plan::SETUP_SECRET);
+    api.send(
+        "PUT",
+        &setup,
+        serde_json::json!({"encrypted_value": plan::base64(&sealed), "key_id": key_id}),
+    )?;
+    let request = request_tag("key");
+    let result = api
+        .dispatch(
+            plan::KEY_WORKFLOW,
+            serde_json::json!({"ref": plan::BASE_BRANCH, "inputs": {"request": request}}),
+            &request,
+        )
+        .and_then(|(run, _)| wait(api, run, &|_| set(text.into())));
+    // The key workflow has read it, or failed: either way it must not stay.
+    let removed = api.delete(&setup);
+    result?;
+    removed?;
+    api.get(&path)?
+        .map(|_| ())
+        .ok_or("The key workflow ran but the signing key is missing: check Actions".into())
+}
+
+/// Waits for run `run`; `waiting(minutes)` hears each poll.
+fn wait(api: &Api, run: u64, waiting: &dyn Fn(u64)) -> Result<(), String> {
+    let started = Instant::now();
+    loop {
+        let state = api
+            .get(&format!("/actions/runs/{run}"))?
+            .ok_or("The run is gone from GitHub")?;
+        match plan::run_state(&state) {
+            Ok(Some(())) => return Ok(()),
+            Ok(None) => {
+                waiting(started.elapsed().as_secs() / 60);
+                std::thread::sleep(Duration::from_secs(10));
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// GitHub's answer as something the player can act on.
@@ -194,7 +301,7 @@ fn failure(e: ureq::Error) -> String {
             "GitHub refused the token: set a new one in Setup > GitHub token".into()
         }
         ureq::Error::Status(code @ (403 | 404), _) => format!(
-            "GitHub said {code}: the token needs Contents and Actions read/write on the repository in Setup"
+            "GitHub said {code}: the token needs Contents, Actions and Secrets read and write on your fork"
         ),
         ureq::Error::Status(code, r) => {
             let message = r
@@ -216,6 +323,7 @@ fn upload_and_dispatch(
 ) -> Result<Record, String> {
     api.get("")?
         .ok_or("The repository in Setup does not exist or the token cannot see it")?;
+    ensure_signing_key(api, set)?;
     let base = api
         .get(&format!("/git/ref/heads/{}", plan::BASE_BRANCH))?
         .and_then(|r| r["object"]["sha"].as_str().map(str::to_owned))
@@ -253,40 +361,23 @@ fn upload_and_dispatch(
         api.send("PUT", &format!("/contents/{path}"), body)?;
         paths.push(path);
     }
-    let request = format!(
-        "native-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
+    let request = request_tag("native");
     set("Starting the build on GitHub...".into());
-    api.send(
-        "POST",
-        &format!("/actions/workflows/{}/dispatches", plan::WORKFLOW),
-        plan::dispatch(&paths, &request, plan::abi()),
-    )?;
-    let runs = format!(
-        "/actions/workflows/{}/runs?event=workflow_dispatch&branch={}&per_page=20",
+    let (run, url) = api.dispatch(
         plan::WORKFLOW,
-        plan::BASE_BRANCH
+        plan::dispatch(&paths, &request, plan::abi()),
+        &request,
+    )?;
+    let record = Record {
+        run,
+        url,
+        mods: paths,
+    };
+    let _ = std::fs::write(
+        game.join(RECORD),
+        serde_json::to_vec(&record).unwrap_or_default(),
     );
-    for _ in 0..36 {
-        std::thread::sleep(Duration::from_secs(5));
-        if let Some((run, url)) = api.get(&runs)?.and_then(|r| plan::find_run(&r, &request)) {
-            let record = Record {
-                run,
-                url,
-                mods: paths,
-            };
-            let _ = std::fs::write(
-                game.join(RECORD),
-                serde_json::to_vec(&record).unwrap_or_default(),
-            );
-            return Ok(record);
-        }
-    }
-    Err("GitHub did not start the build: check Actions on the repository".into())
+    Ok(record)
 }
 
 /// Waits for the run, then downloads its APK for this ABI into the profile's APK folder.

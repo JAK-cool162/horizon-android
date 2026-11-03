@@ -21,6 +21,10 @@ horizon-hdr = { path = "../horizon-hdr" }
 horizon-shader-api = { path = "../horizon-shader-api" }
 jni = "0.21"
 getrandom = "0.3"
+# GitHub's secrets take libsodium sealed boxes (the in-app native build's signing key setup).
+curve25519-dalek = { version = "4.1", default-features = false }
+salsa20 = "0.10"
+poly1305 = "0.8"
 url = "2"
 horizon-assets = { path = "../horizon-assets" }
 horizon-port-pack = { path = "../horizon-port-pack" }
