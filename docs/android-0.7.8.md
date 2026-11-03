@@ -63,6 +63,16 @@ command, as Fabric's callbacks do. Examples: the `extras_api` native mod (versio
 cancellable callbacks, player helpers, and the window's video options for client mods) and the
 `welcome-kit`, `spawn-guard` and `video-settings` mods that use it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
+## Shader packs
+
+The shader pack translator (`crates/horizon-shaders`) is upstream's of 2026-11-03: about 60
+upstream fixes for packs as they are written (fog variables, interface blocks, anonymous
+structs, image parameters, integer bounds, array initializers, the preprocessor). The renderer
+is still this fork's, so a pack's `setup` and `begin` programs and its block outline program
+don't run yet. On the packs read, MakeUp Ultra Fast no longer has 12 programs failing; BSL
+and Complementary Reimagined translate as before. How they look and run on a phone is not
+verified.
+
 ## Verification
 
 - Android ARM64 Clippy with warnings denied passed.

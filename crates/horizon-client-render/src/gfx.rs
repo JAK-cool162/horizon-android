@@ -4882,6 +4882,10 @@ impl Renderer {
             clouds: Some(pack_entities::cloud_inputs()),
             weather: Some(pack_weather::inputs()),
             hand: Some(pack_hand::inputs()),
+            // Not drawn by a pack's programs on this renderer yet: the game's own outline and
+            // the shadow pass's entity geometry stay as they are.
+            lines: None,
+            entity_geometry: None,
         }
     }
 

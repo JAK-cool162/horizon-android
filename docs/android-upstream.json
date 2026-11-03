@@ -26,5 +26,16 @@
     "commits_beyond_merged_baseline": 482,
     "merge_preview_conflicting_files": 12,
     "status": "Reviewed candidate only; not merged or Android-validated"
-  }
+  },
+  "partial_ports": [
+    {
+      "date": "2026-11-03",
+      "upstream_commit": "f42ef42efd",
+      "selected_upstream_release": "nightly-source/2026-11-03-f42ef42",
+      "paths": [
+        "crates/horizon-shaders"
+      ],
+      "review": "Only the shader pack translator (no wgpu), unmodified by the fork, taken whole; the full merge (5,219 commits, 42 conflicts, the horizon-client-lib split) is left for a reviewed integration. The renderer gives the new GameInputs fields (lines, entity_geometry) None and leaves the new setup and begin programs out, as before the translator read them. Its 200+ tests passed; on three real packs MakeUp Ultra Fast went from 12 programs failing (gl_FogFragCoord) to none, BSL and Complementary translate as before. ARM64 Clippy passed. Not yet verified on a device."
+    }
+  ]
 }

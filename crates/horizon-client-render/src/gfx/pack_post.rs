@@ -1968,9 +1968,21 @@ impl PackPost {
             .and_then(|(p, g)| build(p, Some(g)));
         // Developers' aid: `HORIZON_SHADER_PACK_SKIP=composite,final` leaves programs out.
         let skip = std::env::var("HORIZON_SHADER_PACK_SKIP").unwrap_or_default();
+        // `setup` (once) and `begin` (before the shadow pass) programs need their own place in
+        // the frame, which this renderer doesn't give them yet: left out, as before the
+        // translator read them.
+        let early =
+            |p: &horizon_shaders::PostProgram| matches!(p.group, Group::Setup | Group::Begin);
+        let left_out = post.programs.iter().find(|p| early(p)).map(|p| {
+            format!(
+                "{} left out: setup and begin programs don't run yet",
+                p.name
+            )
+        });
         let passes: Vec<Pass> = post
             .programs
             .into_iter()
+            .filter(|p| !early(p))
             .filter(|p| !skip.split(',').any(|s| s == p.name))
             .filter_map(|p| build(p, None))
             .collect();
@@ -1980,6 +1992,7 @@ impl PackPost {
             .filter(|p| !skip.split(',').any(|s| s == p.name))
             .filter_map(|p| build(p, None))
             .collect();
+        notes.extend(left_out);
         if let Some(t) = &terrain {
             notes.push(format!("terrain draws with {}", t.name));
         }

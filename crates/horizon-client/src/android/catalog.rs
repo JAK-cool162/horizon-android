@@ -223,7 +223,9 @@ pub struct LocalItem {
 
 /// The id the mods list knows a `.hmod` by: its manifest's, else its file name's.
 pub fn hmod_id(item: &LocalItem) -> Option<&str> {
-    item.id.as_deref().or_else(|| item.file.strip_suffix(".hmod"))
+    item.id
+        .as_deref()
+        .or_else(|| item.file.strip_suffix(".hmod"))
 }
 
 /// The native mods compiled into this APK (`tools/android_native_mods.py`), `id@version,...`.
