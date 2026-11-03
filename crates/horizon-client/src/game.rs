@@ -5738,6 +5738,8 @@ impl Game<'_> {
         // Native mods, where ServerPlayerGameMode.useItemOn starts: a
         // canceled click does nothing (a guest's block is sent back).
         if let Some(hit) = block_hit {
+            // Server mods hear the click with their next tick (`use-events`).
+            self.mod_block_used(hit.pos);
             let mut canceled = false;
             self.native_right_click_block(hit.pos, hit.face, &mut canceled);
             if canceled {

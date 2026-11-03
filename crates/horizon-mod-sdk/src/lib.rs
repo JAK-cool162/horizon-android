@@ -184,7 +184,7 @@ macro_rules! export_mod {
 pub mod server {
     wit_bindgen::generate!({
         path: "wit",
-        world: "horizon-server-mod",
+        world: "horizon-server-mod-sdk",
         pub_export_macro: true,
         export_macro_name: "__export_horizon_server_mod",
         default_bindings_module: "horizon_mod_sdk::server",
@@ -198,6 +198,7 @@ pub mod server {
         Argument, ArgumentKind, ArgumentValue, BlockPos, Guest as __Guest, Registration,
         ServerCommand,
     };
+    pub use exports::horizon::mods::use_events::Guest as __UseGuest;
     pub use horizon::mods::players::{self, GameMode, Player};
     pub use horizon::mods::world::{self, BlockChange};
 
@@ -228,6 +229,18 @@ pub mod server {
         /// When [`Registration::blocks`] is set: `state` is what was there.
         fn block_broken(&mut self, _player: &Player, _pos: BlockPos, _state: &str) {}
         fn block_placed(&mut self, _player: &Player, _pos: BlockPos, _state: &str) {}
+        /// When [`Registration::blocks`] is set: the player named `player`
+        /// right-clicked `state` at `pos` in `dimension`, holding `item` if
+        /// anything (API level 8). The game has handled the click already.
+        fn block_used(
+            &mut self,
+            _player: &str,
+            _dimension: &str,
+            _pos: BlockPos,
+            _state: &str,
+            _item: Option<&str>,
+        ) {
+        }
     }
 
     impl Registration {
@@ -436,6 +449,27 @@ macro_rules! export_server_mod {
                 }
                 fn block_placed(player: Player, pos: BlockPos, state: String) {
                     with(|m| m.block_placed(&player, pos, &state))
+                }
+            }
+            impl $crate::server::__UseGuest for Export {
+                fn block_used(
+                    player: String,
+                    dimension: String,
+                    x: i32,
+                    y: i32,
+                    z: i32,
+                    state: String,
+                    item: Option<String>,
+                ) {
+                    with(|m| {
+                        m.block_used(
+                            &player,
+                            &dimension,
+                            BlockPos { x, y, z },
+                            &state,
+                            item.as_deref(),
+                        )
+                    })
                 }
             }
             #[cfg(target_arch = "wasm32")]

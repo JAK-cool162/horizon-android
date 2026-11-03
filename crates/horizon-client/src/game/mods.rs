@@ -67,10 +67,10 @@ pub(super) struct ModsState {
     /// levels' chunks to read.
     #[cfg(feature = "mods")]
     pub(super) world: bool,
-    /// Blocks server mods set, by dimension, made before that level's next
-    /// tick.
+    /// Blocks server mods set or break, by dimension, made in order before
+    /// that level's next tick.
     #[cfg(feature = "mods")]
-    pub(super) block_writes: Vec<(String, horizon_mods::BlockChange)>,
+    pub(super) block_writes: Vec<(String, super::server_mods::ModWrite)>,
     /// `command.run` lines for this window's own world, run on the next tick:
     /// run at once, their chat lines would reach the mods while their output
     /// is still being shown, and a mod answering its own lines would recurse.
@@ -810,7 +810,8 @@ impl Game<'_> {
                 server @ (Output::Tell { .. }
                 | Output::Broadcast { .. }
                 | Output::Reply { .. }
-                | Output::SetBlocks { .. }) => {
+                | Output::SetBlocks { .. }
+                | Output::BreakBlocks { .. }) => {
                     self.route_server_output(host.as_deref_mut(), server);
                     continue;
                 }

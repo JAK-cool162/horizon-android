@@ -1,0 +1,29 @@
+# Right-clicking a ripe crop drops its loot and replants it; anything else is left alone.
+
+[[step]]
+join = "Alex"
+blocks = [{ x = 1, y = 64, z = 1, state = "minecraft:wheat[age=7]" }]
+use = { x = 1, y = 64, z = 1, state = "minecraft:wheat[age=7]", item = "minecraft:wheat_seeds" }
+expect.drops = ["1 64 1 minecraft:wheat[age=7]"]
+expect.blocks = [{ x = 1, y = 64, z = 1, state = "minecraft:wheat[age=0]" }]
+
+# Not ripe yet: nothing happens.
+[[step]]
+blocks = [{ x = 2, y = 64, z = 1, state = "minecraft:carrots[age=5]" }]
+use = { x = 2, y = 64, z = 1, state = "minecraft:carrots[age=5]" }
+expect.drops = []
+expect.blocks = [{ x = 2, y = 64, z = 1, state = "minecraft:carrots[age=5]" }]
+
+# Cocoa keeps the side it grows on.
+[[step]]
+blocks = [{ x = 3, y = 65, z = 1, state = "minecraft:cocoa[age=2,facing=north]" }]
+use = { x = 3, y = 65, z = 1, state = "minecraft:cocoa[age=2,facing=north]" }
+expect.drops = ["3 65 1 minecraft:cocoa[age=2,facing=north]"]
+expect.blocks = [{ x = 3, y = 65, z = 1, state = "minecraft:cocoa[age=0,facing=north]" }]
+
+# Not a crop.
+[[step]]
+blocks = [{ x = 4, y = 64, z = 1, state = "minecraft:stone" }]
+use = { x = 4, y = 64, z = 1, state = "minecraft:stone" }
+expect.drops = []
+expect.blocks = [{ x = 4, y = 64, z = 1, state = "minecraft:stone" }]

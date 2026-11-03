@@ -275,6 +275,16 @@ fn play(path: &Path, report: &mut Report) -> Result<(), String> {
             } => {
                 format!("set {} block(s) in {dimension}", blocks.len())
             }
+            Output::BreakBlocks {
+                dimension,
+                positions,
+                drops,
+                ..
+            } => format!(
+                "broke {} block(s) in {dimension}{}",
+                positions.len(),
+                if drops { " with drops" } else { "" }
+            ),
             Output::OpenScreen { .. } => "opened a screen".to_string(),
             Output::CloseScreen { .. } => "closed its screen".to_string(),
             Output::PlaceRecipe { book_id, all } => {

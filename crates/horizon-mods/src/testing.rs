@@ -237,6 +237,18 @@ impl TestGame {
         self.snapshot();
         self.mods.server_command(player, line)
     }
+    /// `player` right-clicks `state` at `pos` in the Overworld, holding `item`.
+    pub fn block_used(
+        &mut self,
+        player: &ServerPlayer,
+        pos: BlockPos,
+        state: &str,
+        item: Option<&str>,
+    ) {
+        self.snapshot();
+        self.mods
+            .block_used(&player.name, "minecraft:overworld", pos, state, item);
+    }
     /// `player` breaks (or places) `state` at `pos`.
     pub fn block(&mut self, player: &ServerPlayer, pos: BlockPos, state: &str, placed: bool) {
         self.snapshot();
@@ -343,6 +355,17 @@ impl From<Mode> for GameMode {
     }
 }
 
+/// A block a player right-clicks, and what they hold.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UseSet {
+    x: i32,
+    y: i32,
+    z: i32,
+    state: String,
+    item: Option<String>,
+}
+
 /// A block a player breaks or places.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -391,6 +414,9 @@ pub struct Step {
     #[serde(rename = "break")]
     broken: Option<BlockSet>,
     place: Option<BlockSet>,
+    /// Server mods: the player right-clicks a block (after `break` and `place`).
+    #[serde(rename = "use")]
+    used: Option<UseSet>,
     /// Blocks of the Overworld before the rest of the step (capability
     /// `world`); every other block is air.
     #[serde(default)]
@@ -420,6 +446,9 @@ pub struct Expect {
     /// Blocks of the Overworld after the step, the mod's changes made
     /// (capability `world`).
     blocks: Option<Vec<BlockSet>>,
+    /// The Overworld blocks the mod broke with their loot during the step, in
+    /// order, as `x y z state`.
+    drops: Option<Vec<String>>,
     /// The mod is turned off during this step, for a reason holding this text.
     /// Without it, a mod that stops fails the test.
     stopped: Option<String>,
@@ -547,7 +576,8 @@ impl Step {
             || self.chat.is_some()
             || self.command.is_some()
             || self.broken.is_some()
-            || self.place.is_some();
+            || self.place.is_some()
+            || self.used.is_some();
         let actor = if server && acts {
             Some(actor(game)?)
         } else {
@@ -588,6 +618,14 @@ impl Step {
                 game.block(p, pos, &b.state, placed);
             }
         }
+        if let (Some(u), Some(p)) = (&self.used, &who) {
+            let pos = BlockPos {
+                x: u.x,
+                y: u.y,
+                z: u.z,
+            };
+            game.block_used(p, pos, &u.state, u.item.as_deref());
+        }
         if let Some(name) = &self.leave
             && !game.leave(name)
         {
@@ -595,15 +633,32 @@ impl Step {
         }
         game.mods.take_world();
         let out = game.drain();
+        let mut dropped = Vec::new();
         for o in &out {
-            if let Output::SetBlocks {
-                dimension, blocks, ..
-            } = o
-                && dimension == "minecraft:overworld"
-            {
-                for b in blocks {
-                    game.world.insert((b.x, b.y, b.z), b.state.clone());
+            match o {
+                Output::SetBlocks {
+                    dimension, blocks, ..
+                } if dimension == "minecraft:overworld" => {
+                    for b in blocks {
+                        game.world.insert((b.x, b.y, b.z), b.state.clone());
+                    }
                 }
+                Output::BreakBlocks {
+                    dimension,
+                    positions,
+                    drops,
+                    ..
+                } if dimension == "minecraft:overworld" => {
+                    for &(x, y, z) in positions {
+                        if let Some(state) = game.world.remove(&(x, y, z))
+                            && *drops
+                            && state != "minecraft:air"
+                        {
+                            dropped.push(format!("{x} {y} {z} {state}"));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         let stopped = out.iter().find_map(|o| match o {
@@ -700,6 +755,9 @@ impl Step {
                     ));
                 }
             }
+        }
+        if let Some(want) = &e.drops {
+            same("drops", want, &dropped)?;
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());

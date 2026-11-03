@@ -692,6 +692,25 @@ interface %world {
     /// in order after this call returns, before that dimension's next tick;
     /// one in a chunk not loaded then is skipped. At most 4096 per call.
     set-blocks: func(dimension: string, blocks: list<block-change>) -> result<_, string>;
+    /// Breaks blocks as `Level.destroyBlock` does: the break particles and
+    /// sound, the block's loot when `drops` (its own loot table, no tool), a
+    /// waterlogged block's water left behind, and neighbours updated. Air is
+    /// skipped. Made in order after this call returns, before that dimension's
+    /// next tick, with the `set-blocks` of the same call order; one in a chunk
+    /// not loaded then is skipped. At most 4096 per call. API level 8.
+    break-blocks: func(dimension: string, positions: list<tuple<s32, s32, s32>>, drops: bool) -> result<_, string>;
+}
+
+/// Server mods' events that arrived after `server-events` (API level 8). An
+/// interface of its own, so a server mod built before it still loads: a mod
+/// whose `init` sets `blocks` hears these too.
+interface use-events {
+    /// The player named `player` right-clicked the block `state` at `x y z`
+    /// in `dimension`, holding `item` (`minecraft:wheat_seeds`) if anything.
+    /// It arrives with the next tick's events, after the game handled the
+    /// click: a mod reacts to it (with `set-blocks`, `break-blocks`) rather
+    /// than stopping it.
+    block-used: func(player: string, dimension: string, x: s32, y: s32, z: s32, state: string, item: option<string>);
 }
 
 /// What the server calls in a server mod (manifest `api = "0.3"`,
@@ -806,6 +825,19 @@ world horizon-server-mod {
     import players;
     import %world;
     export server-events;
+}
+
+/// What the SDK builds server mods against: `horizon-server-mod` and the
+/// events that came after it. The game loads a mod as `horizon-server-mod`
+/// and finds these through `use-host`, so mods built before them still load.
+world horizon-server-mod-sdk {
+    include horizon-server-mod;
+    export use-events;
+}
+
+/// The game's view of `use-events` in a server mod (see `ui-host`).
+world use-host {
+    export use-events;
 }
 
 /// A mod with widgets (capability `ui`): the SDK builds every mod against

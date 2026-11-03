@@ -45,6 +45,13 @@ mod from a template (`new`) and packages it as a `.hnmod` (`pack`), and the Andr
 dev workflow takes a `native_mods` input of `.hnmod` links. See
 [native mods on Android](android-native-mods.md).
 
+## Mod API level 8
+
+Sandboxed `.hmod` mods get `world.break-blocks` (break blocks with their drops) and the
+optional `use-events.block-used` event (a player right-clicked a watched block). The new
+example `right-harvest` replants ripe crops on right-click as a runtime mod, without an
+APK build. See [mods that load without a rebuild](android-native-mods.md#api-level-8-more-of-the-game-without-a-rebuild).
+
 ## Verification
 
 - Android ARM64 Clippy with warnings denied passed.
@@ -55,3 +62,6 @@ dev workflow takes a `native_mods` input of `.hnmod` links. See
 - Not yet verified: the new layout on a device, and an APK built with a `.hnmod`
   (horizon-mixins applying a mod to this fork). Mods pinned to another Horizon commit may
   fail to apply.
+- API level 8: the mod sandbox suite and the API reference test passed, Right Harvest's
+  sandbox script passed (4 steps), and Clippy with warnings denied passed for
+  horizon-mods, the SDK and the example mods (wasm32) and cargo-horizon-mod.

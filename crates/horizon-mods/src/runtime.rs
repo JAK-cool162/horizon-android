@@ -66,6 +66,15 @@ pub use ui_bindings::horizon::mods::ui::{
     ButtonWidget, ItemWidget, ListWidget, Screen as UiScreen, TextWidget, Widget as UiWidget,
 };
 use ui_bindings::{UiHost, horizon::mods::ui};
+/// Server mods' `use-events` (API level 8): a world of its own, so server mods
+/// built before it (no export) still instantiate as `horizon-server-mod`.
+mod use_bindings {
+    wasmtime::component::bindgen!({
+        path: "../horizon-mod-sdk/wit",
+        world: "use-host",
+    });
+}
+use use_bindings::UseHost;
 /// Capability `render`'s imports (docs/mods.md): the game draws the shapes.
 mod render_bindings {
     wasmtime::component::bindgen!({
@@ -231,6 +240,14 @@ pub enum Output {
         dimension: String,
         blocks: Vec<BlockChange>,
     },
+    /// `world.break-blocks`: blocks to break in `dimension`, in order, with
+    /// their loot when `drops`.
+    BreakBlocks {
+        name: String,
+        dimension: String,
+        positions: Vec<(i32, i32, i32)>,
+        drops: bool,
+    },
     /// `ui.open-screen`: the mod's entry in `entries()`; what it shows is
     /// [`Mods::screen`].
     OpenScreen { owner: usize },
@@ -313,6 +330,8 @@ struct Running {
     /// The mod's `ui-events` export; none for a mod built before `ui`, or a
     /// server mod.
     ui: Option<UiHost>,
+    /// A server mod's `use-events`, when it was built with them.
+    uses: Option<UseHost>,
     hooks: Hooks,
     /// It imports `game.raycast`.
     raycasts: bool,
@@ -635,13 +654,14 @@ impl Mods {
         let instance = linker
             .instantiate(&mut store, &component)
             .map_err(|e| reason(&e))?;
-        let (mut hooks, ui) = if server {
+        let (mut hooks, ui, uses) = if server {
             let exports = HorizonServerMod::new(&mut store, &instance).map_err(|e| reason(&e))?;
+            let uses = UseHost::new(&mut store, &instance).ok();
             let r = exports
                 .horizon_mods_server_events()
                 .call_init(&mut store)
                 .map_err(|e| reason(&e))??;
-            (Hooks::Server(exports, r), None)
+            (Hooks::Server(exports, r), None, uses)
         } else {
             let exports = HorizonMod::new(&mut store, &instance).map_err(|e| reason(&e))?;
             // `ui-events` is a mod built since `ui`'s; older mods have no export
@@ -651,7 +671,7 @@ impl Mods {
                 .horizon_mods_events()
                 .call_init(&mut store)
                 .map_err(|e| reason(&e))??;
-            (Hooks::Client(exports, r), ui)
+            (Hooks::Client(exports, r), ui, None)
         };
         let free = |c: &str| {
             let free = !reserved(c) && !taken.iter().any(|t| t == c);
@@ -681,6 +701,7 @@ impl Mods {
         Ok(Some(Running {
             store,
             ui,
+            uses,
             hooks,
             raycasts: functions.iter().any(|f| f == "game.raycast"),
             reads_recipes: functions.iter().any(|f| f.starts_with("recipes.")),
@@ -885,6 +906,35 @@ impl Mods {
             FUEL_EVENT,
             |h| h.blocks,
             |m, s| m.call_block_broken(s, player, pos, state),
+        );
+    }
+    /// The player named `player` right-clicked `state` at `pos` in `dimension`,
+    /// holding `item`: for the server mods whose `init` set `blocks` and that
+    /// were built with `use-events`.
+    pub fn block_used(
+        &mut self,
+        player: &str,
+        dimension: &str,
+        pos: BlockPos,
+        state: &str,
+        item: Option<&str>,
+    ) {
+        self.each(
+            FUEL_EVENT,
+            |h| h.server().is_some_and(|r| r.blocks),
+            |run| match &run.uses {
+                Some(uses) => uses.horizon_mods_use_events().call_block_used(
+                    &mut run.store,
+                    player,
+                    dimension,
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                    state,
+                    item,
+                ),
+                None => Ok(()),
+            },
         );
     }
     /// `player` placed `state` at `pos`.
@@ -1588,6 +1638,33 @@ impl mod_world::Host for State {
                 name: self.name.clone(),
                 dimension,
                 blocks,
+            });
+        }
+        Ok(())
+    }
+    fn break_blocks(
+        &mut self,
+        dimension: String,
+        positions: Vec<(i32, i32, i32)>,
+        drops: bool,
+    ) -> Result<(), String> {
+        if positions.len() > BLOCKS_PER_CALL {
+            return Err(format!(
+                "{} blocks: at most {BLOCKS_PER_CALL} per call",
+                positions.len()
+            ));
+        }
+        if let Some(view) = self.world.lock().ok().as_ref().and_then(|v| v.as_ref())
+            && !view.has_dimension(&dimension)
+        {
+            return Err(format!("no dimension {dimension}"));
+        }
+        if !positions.is_empty() {
+            self.out.push(Output::BreakBlocks {
+                name: self.name.clone(),
+                dimension,
+                positions,
+                drops,
             });
         }
         Ok(())

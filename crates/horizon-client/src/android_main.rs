@@ -1,11 +1,15 @@
 //! Android's native entry point. The simulation and renderer are shared with desktop.
 #![cfg(target_os = "android")]
 
+#[path = "android/data_import.rs"]
+mod data_import;
 #[allow(dead_code, clippy::collapsible_match)]
 // Shared vanilla match structure and desktop harnesses.
 mod game;
 #[path = "android/game_launch.rs"]
 mod game_launch;
+#[path = "android/import_plan.rs"]
+mod import_plan;
 #[path = "android/launcher.rs"]
 mod launcher;
 #[path = "android/launcher_style.rs"]
@@ -16,10 +20,6 @@ mod native_build;
 mod native_build_plan;
 #[path = "android/sealed_box.rs"]
 mod sealed_box;
-#[path = "android/data_import.rs"]
-mod data_import;
-#[path = "android/import_plan.rs"]
-mod import_plan;
 // Share the desktop launcher's actual search, compatibility checks, downloads,
 // dependency resolution and Java content porting; GPUI itself is desktop-only.
 // These files are formatted in the launcher's separate Rust 2021 workspace.

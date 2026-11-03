@@ -1,0 +1,8 @@
+id = "right_harvest"
+name = "Right Harvest"
+version = "0.1.0"
+description = "Right-click a ripe crop (wheat, carrots, potatoes, beetroots, nether wart, cocoa) to harvest it: its loot drops and it is replanted. A sandboxed mod: it loads without rebuilding the game."
+authors = ["Horizon Android"]
+api = "0.3"
+side = "server"
+capabilities = ["players", "world"]

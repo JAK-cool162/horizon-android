@@ -30,6 +30,23 @@ is such a mod: the frame rate in the top-right corner, `/fps` to hide it and `/f
 the slowest frame and the 1% low. Pick this kind of mod when the API covers it, and a
 `.hnmod` when it has to change the game itself.
 
+### API level 8: more of the game without a rebuild
+
+API level 8 lets sandboxed mods do things that needed a `.hnmod` before:
+
+| Function | What it does |
+|---|---|
+| `world::break_blocks(dimension, positions, drops)` (capability `world`) | Breaks up to 4096 blocks loaded in `dimension` as vanilla's `Level.destroyBlock` does: the break particles and sound, the loot when `drops` is true, and the block's fluid left in its place. |
+| `ServerMod::block_used(player, dimension, pos, state, item)` (an optional event) | A player right-clicked a block the mod watches (`on_blocks`), holding `item`. It arrives on the next tick, after the game handled the click. |
+
+[`crates/horizon-mod-sdk/examples/right-harvest`](../crates/horizon-mod-sdk/examples/right-harvest)
+uses both: right-click a ripe crop (wheat, carrots, potatoes, beetroots, nether wart, cocoa)
+and its loot drops and it is replanted, the way the RightHarvest native mod does, as one
+`.hmod` that loads without building an APK. Its sandbox script (`tests/harvest.toml`) uses
+the new `use` step and `drops` expectation. An APK with this runtime (level 8) is needed
+once; after that such mods only need importing. An older APK does not load a mod that calls
+`break_blocks` and says it needs a newer Horizon; older mods keep working on this one.
+
 ## In the launcher
 
 - **Get one.** The Mods tab lists the registry's native mods with an `.hnmod` badge and a
@@ -180,7 +197,8 @@ desktop; their crates must compile for Android.
 
 ## Limits
 
-- No on-phone compiler and no dynamic loading: changing the mods means a new APK.
+- No on-phone compiler and no dynamic loading of native code: changing the `.hnmod` mods
+  means a new APK. Sandboxed `.hmod` mods, which the API keeps growing for, do not.
 - A mod pinned to another Horizon commit may fail to apply or to compile on this fork.
 - The fixed Android bundle wins over a `.hnmod` of the same id; to try another version of
   Zoom, Minimap, Recipes or SmartF3, the fixed copy would have to be removed from the

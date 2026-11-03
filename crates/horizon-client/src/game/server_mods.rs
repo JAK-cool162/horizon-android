@@ -29,6 +29,22 @@ pub(super) enum ModEvent {
         state: String,
         placed: bool,
     },
+    /// A right click on a block (`use-events`), with the held item's id.
+    Use {
+        who: Who,
+        dimension: &'static str,
+        pos: [i32; 3],
+        state: String,
+        item: Option<String>,
+    },
+}
+
+/// A block change a server mod asked for: `world.set-blocks` or `world.break-blocks`.
+#[cfg(feature = "mods")]
+pub(super) enum ModWrite {
+    Set(horizon_mods::BlockChange),
+    /// `Level.destroyBlock`, with the block's loot when true.
+    Break([i32; 3], bool),
 }
 
 #[cfg(not(feature = "mods"))]
@@ -36,6 +52,7 @@ impl Game<'_> {
     pub(super) fn tick_server_mods(&mut self) {}
     pub(super) fn mod_block_event(&mut self, _pos: [i32; 3], _state: BlockStateId, _placed: bool) {}
     pub(super) fn mod_player_chat(&mut self, _who: Who, _text: &str) {}
+    pub(super) fn mod_block_used(&mut self, _pos: [i32; 3]) {}
     pub(super) fn local_server_mod_command(&mut self, _line: &str) -> bool {
         false
     }
@@ -52,6 +69,7 @@ impl Game<'_> {
 
 #[cfg(feature = "mods")]
 mod run {
+    use super::ModWrite;
     use super::{Game, LanHost, ModEvent, Who};
     use horizon_client::chunk_map::ChunkMap;
     use horizon_client::{
@@ -288,6 +306,23 @@ mod run {
                             self.mods.mods.player_chat(&p, &text);
                         }
                     }
+                    ModEvent::Use {
+                        who: w,
+                        dimension,
+                        pos,
+                        state,
+                        item,
+                    } => {
+                        let Some(p) = who(&w) else { continue };
+                        let pos = BlockPos {
+                            x: pos[0],
+                            y: pos[1],
+                            z: pos[2],
+                        };
+                        self.mods
+                            .mods
+                            .block_used(&p.name, dimension, pos, &state, item.as_deref());
+                    }
                     ModEvent::Block {
                         who: w,
                         pos,
@@ -380,7 +415,21 @@ mod run {
                 .partition(|(d, _)| d == dim);
             self.mods.block_writes = later;
             let registry = self.pack.assets.registry;
-            for (_, b) in now {
+            for (_, write) in now {
+                let b = match write {
+                    ModWrite::Set(b) => b,
+                    ModWrite::Break([x, y, z], drops) => {
+                        // Level.destroyBlock: particles and sound, the loot when
+                        // asked, neighbours updated; air and unloaded chunks skipped.
+                        if self.world.loaded(x, z) {
+                            let at = horizon_core::position::BlockPos::new(x, y, z);
+                            self.with_level(|b, level, ticks| {
+                                b.destroy_block(level, ticks, at, drops)
+                            });
+                        }
+                        continue;
+                    }
+                };
                 let state = match crate::game::render_control::parse_state(registry, &b.state) {
                     Ok(state) => state,
                     Err(e) => {
@@ -397,6 +446,25 @@ mod run {
                     );
                 }
             }
+        }
+
+        /// A player right-clicked the block at `pos`: the player acting now,
+        /// holding what they hold (`use-events`).
+        pub(in crate::game) fn mod_block_used(&mut self, pos: [i32; 3]) {
+            if !self.hears_players() {
+                return;
+            }
+            let who = self.lan_acting.map_or(Who::Local, Who::Conn);
+            let state = self.world.block(pos[0], pos[1], pos[2]);
+            let state = self.state_string(state);
+            let item = self.held().map(|s| s.item.to_string());
+            self.mods.events.push(ModEvent::Use {
+                who,
+                dimension: self.dim.id(),
+                pos,
+                state,
+                item,
+            });
         }
 
         /// A player broke (or placed) `state` at `pos`: the player acting now.
@@ -560,12 +628,36 @@ mod run {
                     blocks,
                 } => {
                     let queued = &mut self.mods.block_writes;
-                    queued.extend(blocks.into_iter().map(|b| (dimension.clone(), b)));
+                    queued.extend(
+                        blocks
+                            .into_iter()
+                            .map(|b| (dimension.clone(), ModWrite::Set(b))),
+                    );
                     if queued.len() > MAX_QUEUED_WRITES {
                         let over = queued.len() - MAX_QUEUED_WRITES;
                         queued.drain(..over);
                         log::warn!(
                             "Horizon: mod {name} set more blocks than wait for their level: {over} dropped"
+                        );
+                    }
+                }
+                Output::BreakBlocks {
+                    name,
+                    dimension,
+                    positions,
+                    drops,
+                } => {
+                    let queued = &mut self.mods.block_writes;
+                    queued.extend(
+                        positions.into_iter().map(|(x, y, z)| {
+                            (dimension.clone(), ModWrite::Break([x, y, z], drops))
+                        }),
+                    );
+                    if queued.len() > MAX_QUEUED_WRITES {
+                        let over = queued.len() - MAX_QUEUED_WRITES;
+                        queued.drain(..over);
+                        log::warn!(
+                            "Horizon: mod {name} broke more blocks than wait for their level: {over} dropped"
                         );
                     }
                 }
