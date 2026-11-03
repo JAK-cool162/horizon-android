@@ -2889,6 +2889,16 @@ impl Dim {
             Self::End => LevelShape::END,
         }
     }
+    /// `DimensionType.minY`, as upstream's `Dim` has it for native mods (TreeFall reads it).
+    #[allow(dead_code)]
+    fn min_y(self) -> i32 {
+        self.shape().min_y
+    }
+    /// The highest buildable y, inclusive, as upstream's `Dim` has it for native mods.
+    #[allow(dead_code)]
+    fn max_y(self) -> i32 {
+        self.shape().max_y() - 1
+    }
 }
 /// `Inventory.add` on a player's 36 slots (hotbar first) and off hand,
 /// `max` the stack's own maximum: onto equal stacks first
