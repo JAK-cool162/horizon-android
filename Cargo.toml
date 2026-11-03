@@ -42,6 +42,7 @@ members = [
     "crates/horizon-mod-sdk/examples/right-harvest",
     "crates/horizon-mod-sdk/examples/welcome-kit",
     "crates/horizon-mod-sdk/examples/spawn-guard",
+    "crates/horizon-mod-sdk/examples/video-settings",
     "crates/horizon-mod-sdk/examples/predator-missile",
     "crates/horizon-mod-sdk/examples/welcome",
     "crates/horizon-mod-sdk/examples/beacons",

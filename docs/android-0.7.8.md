@@ -59,9 +59,9 @@ Native mods can serve APIs of their own to sandboxed mods: capability `bridge` (
 `native_bridge_apis` and `native_bridge_call`. New APIs then come as shareable `.hnmod` files
 instead of changes to the game's mod API. Native APIs can also ask a mod at once inside a
 hook (`bridge-asks`, `native_bridge_ask`), so it can cancel a block break, an attack or a
-command, as Fabric's callbacks do. Examples: the `extras_api` native mod (version 2: events,
-cancellable callbacks and player helpers) and the `welcome-kit` and `spawn-guard` mods that use
-it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
+command, as Fabric's callbacks do. Examples: the `extras_api` native mod (version 3: events,
+cancellable callbacks, player helpers, and the window's video options for client mods) and the
+`welcome-kit`, `spawn-guard` and `video-settings` mods that use it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
 ## Verification
 

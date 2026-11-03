@@ -82,6 +82,7 @@ The examples:
 |---|---|
 | [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `extras` ([below](#the-extras-api)). A mod using it can do what a server operator can. |
 | [`examples/welcome-kit`](../crates/horizon-mod-sdk/examples/welcome-kit) | A `.hmod` using it: each new player gets a starter kit once, and `/tps` shows the server's tick rate. Without the Extras API it tells the player which `.hnmod` to install. |
+| [`examples/video-settings`](../crates/horizon-mod-sdk/examples/video-settings) | A client `.hmod` with a Sodium-style Video Settings+ screen (its Settings button in Options > Mods, or `/video`): Potato, Balanced and Quality presets, every option on one page, brightness up to fullbright, and the shader pack. The Extras API applies each change: the screen is the sandboxed mod's, the work is the native mod's. |
 | [`examples/spawn-guard`](../crates/horizon-mod-sdk/examples/spawn-guard) | A `.hmod` on its asks: blocks within 16 of the Overworld's 0, 0 can't be broken or used by players below operator level 2, and explosions there break nothing. |
 
 Package the native mod with `python3 tools/android_native_mods.py pack
@@ -99,8 +100,15 @@ server's native mods, a client mod's by the window's.
 
 ### The Extras API
 
-Version 2 of `extras`, for server mods. Players are named by UUID (as `players::online` gives
-them) or name; arguments and answers are JSON, except `command`'s line.
+Version 3 of `extras`. Server mods get the functions, events and asks below; client mods get
+the window's options. Players are named by UUID (as `players::online` gives them) or name;
+arguments and answers are JSON, except `command`'s line.
+
+| Client function | Arguments | What it does |
+|---|---|---|
+| `options` | | The window's video options: `render_distance`, `simulation_distance`, `max_fps`, `graphics`, `clouds`, `particles`, `smooth_lighting`, `entity_shadows`, `biome_blend`, `mipmap_levels`, `entity_distance`, `gamma`, `fov`, `view_bobbing`, `shader_pack`. |
+| `set_option` | `{"name", "value"}` | Sets one as Video Settings would (`graphics` applies its preset; `gamma` goes up to 10, past the slider, for fullbright), saves `options.txt`, and answers with `options`. |
+| `shader_packs` | | The packs in `shaderpacks/`: `file`, `title`; `set_option` `shader_pack` picks one (`""` for none). |
 
 | Function | Arguments | What it does |
 |---|---|---|

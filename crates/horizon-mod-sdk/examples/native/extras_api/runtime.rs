@@ -1,6 +1,7 @@
 // Extras API: the native API `extras` for sandboxed `.hmod` mods (capability `bridge`), in the
 // spirit of Fabric API's events and helpers. The game gets this file as
-// `crate::game::mod_extras_api`. Version 2 (version 1's `command`, `tps` and `mspt` kept);
+// `crate::game::mod_extras_api`. Version 3: version 2's server API, and the window's video
+// options and shader pack for client mods (a `.hmod` asks, this native code does it);
 // docs/android-native-mods.md lists it all. Players are named by UUID (as `players::online`
 // gives them) or by name. JSON is the form of every argument and answer but `command`'s.
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,11 +12,11 @@ use serde_json::{Value, json};
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "extras_api";
 pub const NAME: &str = "Extras API";
-pub const VERSION: &str = "2.0.0";
-pub const DESCRIPTION: &str = "Gives sandboxed mods the API extras: events (joins, deaths, kills, drops), cancellable callbacks (block breaks and uses, attacks, item pickups, commands, explosions), player helpers (action bar, sidebar, tab list, nicknames, experience) and vanilla commands as the server's console. Mods using it can do what a server operator can.";
+pub const VERSION: &str = "3.0.0";
+pub const DESCRIPTION: &str = "Gives sandboxed mods the API extras: events (joins, deaths, kills, drops), cancellable callbacks (block breaks and uses, attacks, item pickups, commands, explosions), player helpers (action bar, sidebar, tab list, nicknames, experience), vanilla commands as the server's console, and the video options and shader pack. Mods using it can do what a server operator can, and change your video settings.";
 /// The API's name and version, as mods ask for them.
 pub const API: &str = "extras";
-pub const API_VERSION: u32 = 2;
+pub const API_VERSION: u32 = 3;
 
 /// What a mod hears with the next tick, after it happened.
 pub const EVENTS: [&str; 5] = ["player_join", "player_leave", "player_death", "mob_killed", "item_dropped"];
@@ -111,6 +112,119 @@ fn done(ok: bool) -> Result<String, String> {
     if ok { Ok(String::new()) } else { Err("the player is not here".into()) }
 }
 
+/// The video options client mods read (`options`) and set (`set_option`), as JSON.
+fn options(s: &horizon_client::settings::Settings) -> Value {
+    json!({
+        "render_distance": s.render_distance,
+        "simulation_distance": s.simulation_distance,
+        "max_fps": s.max_fps,
+        "graphics": s.graphics_preset,
+        "clouds": s.clouds,
+        "particles": s.particles,
+        "smooth_lighting": s.smooth_lighting,
+        "entity_shadows": s.entity_shadows,
+        "biome_blend": s.biome_blend,
+        "mipmap_levels": s.mipmap_levels,
+        "entity_distance": s.entity_distance,
+        "gamma": s.gamma,
+        "fov": s.fov,
+        "view_bobbing": s.view_bobbing,
+        "shader_pack": s.horizon.shader_pack,
+    })
+}
+
+/// A number in `min..=max` from `value`.
+fn number(value: &Value, min: f64, max: f64) -> Result<f64, String> {
+    let n = value.as_f64().ok_or("expected a number")?;
+    if (min..=max).contains(&n) { Ok(n) } else { Err(format!("expected {min} to {max}")) }
+}
+
+fn flag(value: &Value) -> Result<bool, String> {
+    value.as_bool().ok_or_else(|| "expected true or false".to_owned())
+}
+
+/// `set_option`: `{"name", "value"}`, applied to the window as its Video Settings would, and saved.
+fn set_option(game: &mut crate::game::Game<'_>, args: &Value) -> Result<String, String> {
+    let name = args["name"].as_str().ok_or("expected \"name\": an option")?;
+    let value = &args["value"];
+    let s = &mut game.settings;
+    let mut custom = true;
+    match name {
+        "render_distance" => s.render_distance = number(value, 2.0, 32.0)? as i32,
+        "simulation_distance" => s.simulation_distance = number(value, 5.0, 32.0)? as i32,
+        "max_fps" => s.max_fps = number(value, 10.0, 260.0)? as u32,
+        "graphics" => {
+            let preset = value.as_str().unwrap_or_default();
+            if !["fast", "fancy", "fabulous"].contains(&preset) {
+                return Err("expected fast, fancy or fabulous".into());
+            }
+            s.graphics_preset = preset.into();
+            horizon_client::options_ui::apply_preset(s);
+            custom = false;
+        }
+        "clouds" => {
+            let clouds = value.as_str().unwrap_or_default();
+            if !["false", "fast", "true"].contains(&clouds) {
+                return Err("expected \"false\", \"fast\" or \"true\"".into());
+            }
+            s.clouds = clouds.into();
+        }
+        "particles" => s.particles = number(value, 0.0, 2.0)? as u8,
+        "smooth_lighting" => s.smooth_lighting = flag(value)?,
+        "entity_shadows" => s.entity_shadows = flag(value)?,
+        "biome_blend" => s.biome_blend = number(value, 0.0, 7.0)? as i32,
+        "mipmap_levels" => s.mipmap_levels = number(value, 0.0, 4.0)? as i32,
+        "entity_distance" => s.entity_distance = number(value, 0.5, 5.0)? as f32,
+        // Past 1 it brightens further, as fullbright mods do.
+        "gamma" => {
+            s.gamma = number(value, 0.0, 10.0)? as f32;
+            custom = false;
+        }
+        "fov" => {
+            s.fov = number(value, 30.0, 110.0)? as f32;
+            custom = false;
+        }
+        "view_bobbing" => {
+            s.view_bobbing = flag(value)?;
+            custom = false;
+        }
+        "shader_pack" => {
+            let pick = value.as_str().unwrap_or_default();
+            let packs = horizon_client::shader_pack_list::scan(&crate::game::Game::shader_packs_dir());
+            if !pick.is_empty() && !packs.iter().any(|p| p.file == pick) {
+                return Err(format!("no shader pack {pick} in shaderpacks"));
+            }
+            s.horizon.shader_pack = pick.into();
+            custom = false;
+        }
+        other => return Err(format!("no option {other}")),
+    }
+    if custom && name != "graphics" {
+        s.graphics_preset = "custom".into();
+    }
+    game.apply_settings();
+    game.settings.save(&crate::game::Game::options_path());
+    Ok(options(&game.settings).to_string())
+}
+
+/// A client mod's call: the window's options.
+fn serve_client(game: &mut crate::game::Game<'_>, function: &str, args: &str) -> Result<String, String> {
+    match function {
+        "options" => Ok(options(&game.settings).to_string()),
+        "set_option" => {
+            let args: Value = serde_json::from_str(args).map_err(|e| format!("arguments: {e}"))?;
+            set_option(game, &args)
+        }
+        "shader_packs" => {
+            let packs = horizon_client::shader_pack_list::scan(&crate::game::Game::shader_packs_dir());
+            let packs: Vec<Value> =
+                packs.iter().map(|p| json!({"file": p.file, "title": p.title})).collect();
+            Ok(json!(packs).to_string())
+        }
+        other => Err(format!("{other} is for server mods, or {API} has no such function")),
+    }
+}
+
 /// A mod's call to `extras`: its answer.
 pub(super) fn serve(
     game: &mut crate::game::Game<'_>,
@@ -118,7 +232,10 @@ pub(super) fn serve(
 ) -> Result<String, String> {
     let function = call.function;
     if !call.server {
-        return Err(format!("{function} is for server mods"));
+        return serve_client(game, function, call.args);
+    }
+    if matches!(function, "options" | "set_option" | "shader_packs") {
+        return Err(format!("{function} is for client mods: the window's options"));
     }
     if function == "command" {
         let line = command_line(call.args)?;

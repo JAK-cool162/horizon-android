@@ -265,7 +265,10 @@ impl Manifest {
         if let Some(c) = m
             .capabilities
             .iter()
-            .find(|c| c.on_server() != server && **c != Capability::Storage)
+            // `storage` and `bridge` serve both sides.
+            .find(|c| {
+                c.on_server() != server && !matches!(c, Capability::Storage | Capability::Bridge)
+            })
         {
             let side = if server { "client" } else { "server" };
             return Err(format!("{MANIFEST}: capability {c} is for {side} mods"));
@@ -504,6 +507,16 @@ capabilities = ["game-read", "hud"]
         assert!(Manifest::parse(&bad_api).unwrap_err().contains("API 0.4"));
         let unknown = format!("{EXAMPLE}network = true\n");
         assert!(Manifest::parse(&unknown).is_err());
+    }
+
+    #[test]
+    fn the_bridge_is_for_client_and_server_mods() {
+        for (api, side) in [("0.1", "client"), ("0.3", "server")] {
+            let m = Manifest::parse(&format!(
+                "id = \"w\"\nname = \"W\"\nversion = \"1\"\napi = \"{api}\"\nside = \"{side}\"\ncapabilities = [\"bridge\"]\nexperimental = [\"bridge\"]\n"
+            ));
+            assert!(m.is_ok(), "{side}: {m:?}");
+        }
     }
 
     #[test]
