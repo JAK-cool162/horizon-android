@@ -6,8 +6,9 @@
 use super::Game;
 use std::collections::BTreeMap;
 
-/// A sandboxed mod's `bridge.call`, as `native_bridge_call` hears it.
-#[cfg_attr(not(feature = "mods"), allow(dead_code))]
+/// A sandboxed mod's `bridge.call`, as `native_bridge_call` hears it. Native mods' hook bodies
+/// read the fields; a build with none stamped in doesn't.
+#[allow(dead_code)]
 pub(crate) struct NativeBridgeCall<'a> {
     /// The calling mod's id (`horizon-mod.toml`).
     pub(crate) mod_id: &'a str,
