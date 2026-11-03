@@ -317,6 +317,11 @@ fn register_mob_effects(mods: &[horizon_client::mod_content::ContentMod]) {
 /// A build without the `mods` feature: no mod runs.
 #[cfg(not(feature = "mods"))]
 impl Game<'_> {
+    /// No WebAssembly mod runs, so none has keys.
+    #[allow(dead_code)]
+    pub(super) fn running_mod_keys(&self) -> Vec<RunningModKey> {
+        Vec::new()
+    }
     /// Says why the installed and dev mods don't run.
     pub(super) fn start_mods(&mut self) {
         let dir = Self::options_path().with_file_name(mod_list::DIR);
@@ -388,8 +393,33 @@ fn register_menu_types(mods: &[horizon_client::mod_content::ContentMod]) {
 /// What the launcher writes beside a game it built with native mods: their ids under `mods`.
 const BUILD_INFO: &str = "native-mods.json";
 
+/// A running WebAssembly mod's key (`input.register-key`), with the key it is on now.
+#[allow(dead_code)]
+pub(super) struct RunningModKey {
+    pub(super) id: String,
+    pub(super) mod_name: String,
+    pub(super) name: String,
+    pub(super) label: String,
+    pub(super) key: String,
+}
+
 #[cfg(feature = "mods")]
 impl Game<'_> {
+    /// The running mods' keys, for a touch button that presses one.
+    #[allow(dead_code)]
+    pub(super) fn running_mod_keys(&self) -> Vec<RunningModKey> {
+        self.mods
+            .mods
+            .keys_by_id()
+            .map(|(id, mod_name, k)| RunningModKey {
+                id: id.to_owned(),
+                mod_name: mod_name.to_owned(),
+                name: k.name.clone(),
+                label: k.label.clone(),
+                key: k.key.clone(),
+            })
+            .collect()
+    }
     /// Reads `horizon-mods/` and the dev mods, and starts the ones turned on.
     pub(super) fn start_mods(&mut self) {
         let dir = Self::options_path().with_file_name(mod_list::DIR);

@@ -363,7 +363,7 @@ pub fn portable_version(v: &str) -> bool {
 }
 
 /// The newest plain release (`1.21.4`, `26.2`) in a list of Minecraft versions.
-fn newest_release(versions: &[String]) -> Option<&str> {
+pub fn newest_release(versions: &[String]) -> Option<&str> {
     versions
         .iter()
         .filter(|v| {

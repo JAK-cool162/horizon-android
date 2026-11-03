@@ -165,6 +165,15 @@ pub fn compatibility() -> bool {
 
 pub use crate::clipboard::{ClipboardHooks, clipboard_get, clipboard_set, install_clipboard};
 
+/// The launcher's "Controls": the game opens the touch layout editor on its title screen.
+static OPEN_TOUCH_EDITOR: AtomicBool = AtomicBool::new(false);
+pub fn request_touch_editor(open: bool) {
+    OPEN_TOUCH_EDITOR.store(open, Ordering::Release);
+}
+pub fn take_touch_editor() -> bool {
+    OPEN_TOUCH_EDITOR.swap(false, Ordering::AcqRel)
+}
+
 static RETURN_TO_LAUNCHER: AtomicBool = AtomicBool::new(false);
 pub fn return_to_launcher() {
     RETURN_TO_LAUNCHER.store(true, Ordering::Release);

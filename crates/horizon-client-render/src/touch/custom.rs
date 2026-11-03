@@ -19,7 +19,8 @@ impl CustomButton {
         }
     }
     pub fn valid_token(token: &str) -> bool {
-        token == "key.keyboard.unknown"
+        mod_key(token).is_some()
+            || token == "key.keyboard.unknown"
             || crate::keybinds::key_code(token).is_some()
             || token
                 .strip_prefix("action:")
@@ -32,8 +33,36 @@ impl CustomButton {
         if let Some(name) = self.key.strip_prefix("action:") {
             return crate::text::Text::translate(name, &[]).plain();
         }
+        if let Some((_, name)) = mod_key(&self.key) {
+            // The mod's own label while it runs (without "Mod: "), else its name for the key.
+            let keys = MOD_KEYS.lock().unwrap_or_else(|e| e.into_inner());
+            return keys
+                .iter()
+                .find(|(token, _)| *token == self.key)
+                .map_or(name, |(_, label)| {
+                    label.split_once(": ").map_or(label.as_str(), |(_, l)| l)
+                })
+                .to_owned();
+        }
         crate::keybinds::display_name(&self.key).plain()
     }
+}
+/// The mods' keys a button can press: `(mod:<mod id>:<key name>, "<mod>: <label>")`, set by the
+/// game from the mods running (`set_mod_keys`).
+static MOD_KEYS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+/// The mods' keys offered first under "Game action".
+pub fn set_mod_keys(keys: Vec<(String, String)>) {
+    *MOD_KEYS.lock().unwrap_or_else(|e| e.into_inner()) = keys;
+}
+/// A button's mod key: `mod:<mod id>:<key name>` as `(mod id, key name)`. The mod need not be
+/// running: its button stays, and presses nothing until it does.
+pub fn mod_key(token: &str) -> Option<(&str, &str)> {
+    let (id, name) = token.strip_prefix("mod:")?.split_once(':')?;
+    let id_ok = !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
+    (id_ok && !name.is_empty() && token.len() <= 128).then_some((id, name))
 }
 pub(super) fn choices(raw_keys: bool) -> Vec<(String, String)> {
     if raw_keys {
@@ -42,15 +71,19 @@ pub(super) fn choices(raw_keys: bool) -> Vec<(String, String)> {
             .map(|(name, _)| ((*name).into(), crate::keybinds::display_name(name).plain()))
             .collect()
     } else {
-        crate::keybinds::MAPPINGS
-            .iter()
-            .filter(|m| m.1 != "key.keyboard.unknown")
-            .map(|(name, _, _)| {
-                (
-                    format!("action:{name}"),
-                    crate::text::Text::translate(name, &[]).plain(),
-                )
-            })
+        let mods = MOD_KEYS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        mods.into_iter()
+            .chain(
+                crate::keybinds::MAPPINGS
+                    .iter()
+                    .filter(|m| m.1 != "key.keyboard.unknown")
+                    .map(|(name, _, _)| {
+                        (
+                            format!("action:{name}"),
+                            crate::text::Text::translate(name, &[]).plain(),
+                        )
+                    }),
+            )
             .collect()
     }
 }

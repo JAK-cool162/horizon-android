@@ -2,6 +2,7 @@
 use crate::browser::{self, Kind, Project, Query, Source, installed::Installed};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
 };
@@ -207,6 +208,129 @@ pub struct Catalog {
     pub github_token_text: String,
     pub github_token_saved: bool,
     native_restored: bool,
+    /// The results' icons.
+    pub thumbs: Thumbs,
+}
+
+/// Icons fetched once each from a result's `icon` link over HTTPS, in the background and a few at
+/// a time, and the atlas slots that show them.
+pub struct Thumbs {
+    /// Every icon asked for: `Some` once fetched and decoded, `None` while loading or when it
+    /// can't be (it is not asked for again).
+    images: HashMap<String, Option<Arc<[u8]>>>,
+    queue: std::collections::VecDeque<String>,
+    running: usize,
+    tx: mpsc::Sender<(String, Option<Vec<u8>>)>,
+    rx: mpsc::Receiver<(String, Option<Vec<u8>>)>,
+    slots: crate::thumbnails::Slots,
+    /// The atlas the slots were written to: its address and `ui_theme::atlas_generation`.
+    atlas: (usize, u64),
+}
+impl Default for Thumbs {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        Self {
+            images: HashMap::new(),
+            queue: Default::default(),
+            running: 0,
+            tx,
+            rx,
+            slots: Default::default(),
+            atlas: (0, 0),
+        }
+    }
+}
+impl Thumbs {
+    /// Icons kept decoded (64 KiB each); past it they are forgotten and fetched again if shown.
+    const KEPT: usize = 240;
+    /// The atlas sprite showing `url`'s icon in `atlas`, and its pixels the first time it is
+    /// shown there (to write into the slot this frame); `None` while it loads or if it has none.
+    pub fn sprite(
+        &mut self,
+        url: &str,
+        atlas: (usize, u64),
+    ) -> Option<(String, Option<Arc<[u8]>>)> {
+        if self.atlas != atlas {
+            self.atlas = atlas;
+            self.slots = Default::default();
+        }
+        let image = match self.images.get(url) {
+            Some(image) => image.clone()?,
+            None => {
+                if self.images.len() >= Self::KEPT {
+                    self.images.retain(|_, image| image.is_none());
+                    self.slots = Default::default();
+                }
+                self.images.insert(url.to_owned(), None);
+                self.queue.push_back(url.to_owned());
+                return None;
+            }
+        };
+        let (slot, write) = self.slots.slot(url);
+        Some((format!("horizon/pack-icon{slot}"), write.then_some(image)))
+    }
+    /// Takes the fetched icons and starts the next fetches.
+    pub fn poll(&mut self) {
+        while let Ok((url, image)) = self.rx.try_recv() {
+            self.running -= 1;
+            if let Some(image) = image {
+                self.images.insert(url, Some(Arc::from(image)));
+            }
+        }
+        while self.running < crate::thumbnails::PARALLEL {
+            let Some(url) = self.queue.pop_front() else {
+                break;
+            };
+            self.running += 1;
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let image = fetch_icon(&url).and_then(|bytes| crate::thumbnails::square(&bytes));
+                let _ = tx.send((url, image));
+            });
+        }
+    }
+}
+/// An icon file at an HTTPS link, if it is at most `thumbnails::MAX_BYTES`.
+fn fetch_icon(url: &str) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    ureq::AgentBuilder::new()
+        .https_only(true)
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(20))
+        .build()
+        .get(url)
+        .call()
+        .ok()?
+        .into_reader()
+        .take(crate::thumbnails::MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= crate::thumbnails::MAX_BYTES).then_some(bytes)
+}
+
+/// How a result runs in this build, said on its row: `(label, fill, ink)`. The desktop launcher's
+/// [`Project::support`], except what Android does differently: Java shader packs run through the
+/// shader translator (partly), and Java mods don't run.
+pub fn compatibility(project: &Project) -> (String, u32, u32) {
+    use crate::launcher_style::color;
+    let support = match (project.kind, project.source) {
+        (Kind::Shader, source) if source != browser::SourceId::Horizon => {
+            browser::Support::Partial("Translated from GLSL".into())
+        }
+        (Kind::Mod, browser::SourceId::Modrinth) => browser::Support::No("Java mod".into()),
+        _ => project.support(),
+    };
+    let (fill, ink) = match support {
+        browser::Support::Works => (color::GOOD, color::ON_GOOD),
+        browser::Support::Partial(_) => (color::WARN, color::ON_WARN),
+        browser::Support::No(_) => (color::BAD, color::ON_BAD),
+    };
+    let label = match browser::newest_release(&project.game_versions) {
+        Some(version) => format!("{} · {version}", support.label()),
+        None => support.label().to_owned(),
+    };
+    (label, fill, ink)
 }
 #[derive(Clone)]
 pub struct LocalItem {
@@ -279,6 +403,7 @@ impl Catalog {
             github_token_text: String::new(),
             github_token_saved: false,
             native_restored: false,
+            thumbs: Default::default(),
         };
         result.refresh(home);
         result
@@ -448,6 +573,7 @@ impl Catalog {
         });
     }
     pub fn poll(&mut self, home: &Path) {
+        self.thumbs.poll();
         if !self.native_restored {
             self.native_restored = true;
             self.github_token_saved = crate::native_build::token().is_some();

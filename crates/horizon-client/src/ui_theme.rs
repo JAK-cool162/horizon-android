@@ -137,9 +137,17 @@ struct Cache {
 thread_local! {
     static CACHE: RefCell<Option<Cache>> = const { RefCell::new(None) };
 }
+/// Bumped by [`reset_atlas`].
+static ATLAS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// Reloaded atlases can occupy the same address with empty run-time slots.
 pub fn reset_atlas() {
     CACHE.with(|cache| *cache.borrow_mut() = None);
+    ATLAS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+/// Changes whenever the atlas's run-time slots may have lost what was written to them, so
+/// images kept there (catalog thumbnails) are written again.
+pub fn atlas_generation() -> u64 {
+    ATLAS_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
 }
 fn with_cache<R>(atlas: &HudAtlas, f: impl FnOnce(&mut Cache) -> R) -> R {
     CACHE.with(|c| {
@@ -362,6 +370,39 @@ impl<'a> Ui<'a> {
         })
     }
     /// Move rasterized glyphs into the batch's atlas uploads (real frames only).
+    /// The atlas sprite `sprite` over `x y w h` dp, with `upload` (`width x height` RGBA) written
+    /// into the sprite's region first, this frame: a slot filled at run time, such as a thumbnail.
+    #[allow(clippy::too_many_arguments)]
+    pub fn image(
+        &mut self,
+        sprite: &str,
+        upload: Option<(&[u8], u32, u32)>,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) {
+        let Some(r) = self.atlas.sprites.get(sprite).copied() else {
+            return;
+        };
+        if let Some((rgba, width, height)) = upload {
+            self.batch.patches.push(crate::font::Patch {
+                x: (r.u0 * self.atlas.width as f32).round() as u32,
+                y: (r.v0 * self.atlas.height as f32).round() as u32,
+                width,
+                height,
+                rgba: rgba.to_vec(),
+            });
+        }
+        let s = self.scale;
+        let (x0, y0) = (self.px_x(x) / s, self.px_y(y) / s);
+        let (x1, y1) = (self.px_x(x + w) / s, self.px_y(y + h) / s);
+        self.batch.quad(
+            [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+            [[r.u0, r.v0], [r.u1, r.v0], [r.u1, r.v1], [r.u0, r.v1]],
+            u32::MAX,
+        );
+    }
     pub fn finish(self) {
         let pending = with_cache(self.atlas, |c| std::mem::take(&mut c.pending));
         self.batch.patches.extend(pending);

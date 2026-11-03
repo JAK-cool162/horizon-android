@@ -54,6 +54,8 @@ pub(super) struct Launcher {
     session_worker: Option<mpsc::Receiver<std::result::Result<Option<PathBuf>, String>>>,
     session_ready: bool,
     prepared_session: Option<PathBuf>,
+    /// The launch is the "Controls" one: the title screen with the touch layout editor, no server.
+    edit_controls: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
 }
@@ -110,6 +112,7 @@ impl Launcher {
             session_worker: None,
             session_ready: false,
             prepared_session: None,
+            edit_controls: false,
             focus: None,
             diagnostic_export: None,
         }
@@ -347,12 +350,19 @@ impl Launcher {
                 game_home,
                 session_file: self.prepared_session.take(),
                 offline_name: self.catalog.config.name.clone(),
-                server: self.catalog.config.server.clone(),
+                server: if self.edit_controls {
+                    String::new()
+                } else {
+                    self.catalog.config.server.clone()
+                },
                 control_socket: (!crate::PUBLIC_BUILD).then(|| self.home.join("control.json")),
                 extra_arguments,
                 open_gl: self.catalog.config.renderer == crate::catalog::RendererMode::OpenGl,
                 gpu_batching: self.catalog.config.renderer == crate::catalog::RendererMode::Vulkan,
             };
+            horizon_client::android_runtime::request_touch_editor(std::mem::take(
+                &mut self.edit_controls,
+            ));
             crate::document_store::set_game_active(true);
             let game = match crate::game_launch::start(request) {
                 Ok(game) => game,

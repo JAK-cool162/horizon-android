@@ -1294,6 +1294,20 @@ impl Mods {
                 d.input.keys.iter().map(move |k| (d.name.as_str(), k))
             })
     }
+    /// The running mods' keys by mod id: (mod id, mod name, key), the key with the player's
+    /// choice in it.
+    pub fn keys_by_id(&self) -> impl Iterator<Item = (&str, &str, &ModKey)> {
+        self.entries
+            .iter()
+            .filter_map(|e| Some((e.manifest.as_ref()?, e.run.as_ref()?)))
+            .flat_map(|(m, r)| {
+                let d = r.store.data();
+                d.input
+                    .keys
+                    .iter()
+                    .map(move |k| (m.id.as_str(), d.name.as_str(), k))
+            })
+    }
     /// Mod `i`'s keys, as it registered them (with the player's choices).
     pub fn keys_of(&self, i: usize) -> &[ModKey] {
         self.entries

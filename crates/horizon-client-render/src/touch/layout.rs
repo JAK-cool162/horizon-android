@@ -463,6 +463,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn mod_keys_are_offered_first_and_their_buttons_survive_the_mod_stopping() {
+        use super::super::{CustomButton, custom, mod_key, set_mod_keys};
+        assert_eq!(mod_key("mod:liteminer:mine"), Some(("liteminer", "mine")));
+        assert_eq!(mod_key("mod::mine"), None);
+        assert_eq!(mod_key("mod:bad id:mine"), None);
+        let token = "mod:test-only-mod:dash";
+        set_mod_keys(vec![(token.into(), "Test Mod: Dash forward".into())]);
+        let button = CustomButton::new(token.into(), 0);
+        assert_eq!(button.label(), "Dash forward");
+        assert_eq!(custom::choices(false)[0].0, token);
+        assert!(!custom::choices(true).iter().any(|(t, _)| t == token));
+        // Saved with the mod off: the button keeps its key.
+        let mut settings = Settings::default();
+        settings.custom_buttons.push(button);
+        settings.sanitize();
+        assert_eq!(settings.custom_buttons[0].key, token);
+    }
+
     use super::*;
 
     #[test]

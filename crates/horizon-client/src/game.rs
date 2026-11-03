@@ -7974,6 +7974,11 @@ impl Game<'_> {
             + self.clock.fraction() as f32)
             / 24000.0;
         let (w, h) = (batch.width, batch.height);
+        // Started from the launcher's "Controls": the layout editor over the title screen.
+        #[cfg(target_os = "android")]
+        if self.title.is_some() && horizon_client::android_runtime::take_touch_editor() {
+            self.android_open_touch_editor();
+        }
         // HDR calibration ends when its page does, whatever moved the screen
         // off Options (a death screen opened by a server, say).
         if self.screen != Screen::Options && self.ui.options.calibration_fullscreen.is_some() {

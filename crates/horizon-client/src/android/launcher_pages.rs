@@ -10,6 +10,8 @@ use winit::{
 pub(super) enum Action {
     Page(Page),
     Play,
+    /// Start the game on its title screen with the touch layout editor open.
+    Controls,
     Search,
     ShaderSource(crate::shader_catalog::Origin),
     ModSource(crate::shader_catalog::Origin),
@@ -607,6 +609,32 @@ impl Launcher {
                     );
                 }
             } else {
+                // Beside Launch once installed: the on-screen controls' editor, before playing.
+                let pw = if installed && pw >= 300.0 {
+                    let controls = [px + pw - 118.0, launch[1], 118.0, launch_h];
+                    ui.rounded(
+                        controls[0],
+                        controls[1],
+                        118.0,
+                        launch_h,
+                        20.0,
+                        color::RAISED,
+                    );
+                    let lw = ui.measure(Face::Medium, 16.0, "Controls");
+                    ui.text(
+                        Face::Medium,
+                        16.0,
+                        controls[0] + (118.0 - lw) / 2.0,
+                        launch[1] + (launch_h - 16.0 * 1.45) / 2.0,
+                        color::TEXT,
+                        "Controls",
+                    );
+                    self.targets.push((controls, Action::Controls));
+                    pw - 126.0
+                } else {
+                    pw
+                };
+                let launch = [px, launch[1], pw, launch_h];
                 ui.rounded(px, launch[1], pw, launch_h, 20.0, color::ACCENT);
                 let label = if installed {
                     "Launch"
@@ -803,6 +831,10 @@ impl Launcher {
                     false,
                 );
             }
+            let atlas_id = (
+                &gui.atlas as *const horizon_client::hud::HudAtlas as usize,
+                horizon_client::ui_theme::atlas_generation(),
+            );
             for (row, (i, p)) in catalog_rows.into_iter().enumerate() {
                 let y = top + (row + bundled.len()) as f32 * 78.0 - self.catalog.scroll;
                 let download = self.catalog.download_label(p);
@@ -817,15 +849,51 @@ impl Launcher {
                     continue;
                 }
                 style::card(&mut ui, [16.0, y - 8.0, w - 32.0, 66.0], color::CARD);
-                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - 214.0);
-                let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 214.0);
-                ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
-                ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
+                // The icon, or the initial until it has loaded (or when there is none).
+                let sprite = p
+                    .icon
+                    .as_deref()
+                    .filter(|url| url.starts_with("https://"))
+                    .and_then(|url| self.catalog.thumbs.sprite(url, atlas_id));
+                match sprite {
+                    Some((sprite, upload)) => {
+                        let side = crate::thumbnails::SIZE;
+                        ui.image(
+                            &sprite,
+                            upload.as_deref().map(|rgba| (rgba, side, side)),
+                            26.0,
+                            y - 1.0,
+                            52.0,
+                            52.0,
+                        );
+                    }
+                    None => style::avatar(&mut ui, 26.0, y - 1.0, 52.0, &p.title),
+                }
+                let text_x = 90.0;
+                let text_w = w - 160.0 - text_x;
+                let title = ui.fit_text(Face::Medium, 19.0, &p.title, text_w);
+                ui.text(Face::Medium, 19.0, text_x, y, color::TEXT, &title);
                 if crate::catalog::source_only_mod(p) {
-                    let x = 40.0 + ui.measure(Face::Medium, 19.0, &title);
+                    let x = text_x + 8.0 + ui.measure(Face::Medium, 19.0, &title);
                     if x + 70.0 < w - 160.0 {
                         style::badge(&mut ui, x, y, ".hnmod", color::RAISED, color::MUTED);
                     }
+                }
+                // Where it comes from and how it runs here, then as much summary as fits.
+                let (fits, fill, ink) = crate::catalog::compatibility(p);
+                let mut x = text_x;
+                x += style::badge(
+                    &mut ui,
+                    x,
+                    y + 26.0,
+                    p.source.label(),
+                    color::RAISED,
+                    color::MUTED,
+                ) + 6.0;
+                x += style::badge(&mut ui, x, y + 26.0, &fits, fill, ink) + 10.0;
+                if w - 160.0 - x > 60.0 {
+                    let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 160.0 - x);
+                    ui.text(Face::Regular, 14.0, x, y + 30.0, color::MUTED, &summary);
                 }
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
@@ -1975,7 +2043,14 @@ impl Launcher {
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
             }
-            Some(Action::Play) => self.action(events)?,
+            Some(Action::Play) => {
+                self.edit_controls = false;
+                self.action(events)?;
+            }
+            Some(Action::Controls) => {
+                self.edit_controls = true;
+                self.action(events)?;
+            }
             Some(Action::Search) => {
                 crate::platform::hide();
                 self.catalog.offset = 0;

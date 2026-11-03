@@ -306,11 +306,7 @@ impl Game<'_> {
         for e in events {
             match e {
                 #[cfg(target_os = "android")]
-                Event::TouchControls => {
-                    self.android_release_touch_keys(true);
-                    self.pad.touch.open_editor();
-                    self.dragging = false;
-                }
+                Event::TouchControls => self.android_open_touch_editor(),
                 Event::ButtonClick => self.audio.play_button_click(),
                 Event::Changed => {
                     #[cfg(target_os = "android")]

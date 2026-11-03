@@ -147,8 +147,83 @@ impl Game<'_> {
             })
         })
     }
+    /// Opens the touch layout editor, with the mods' keys among a button's choices.
+    pub(super) fn android_open_touch_editor(&mut self) {
+        self.android_release_touch_keys(true);
+        self.android_publish_mod_keys();
+        self.pad.touch.open_editor();
+        self.dragging = false;
+    }
+    /// The running mods' keys and the native mods' as touch button choices.
+    fn android_publish_mod_keys(&self) {
+        let mut keys: Vec<(String, String)> = self
+            .running_mod_keys()
+            .into_iter()
+            .map(|k| {
+                (
+                    format!("mod:{}:{}", k.id, k.name),
+                    format!("{}: {}", k.mod_name, k.label),
+                )
+            })
+            .collect();
+        for row in &self.settings.mods.installed {
+            let Some(page) = &row.native else {
+                continue;
+            };
+            for [name, label, _] in &page.keys {
+                keys.push((
+                    format!("mod:{}:{name}", row.id),
+                    format!("{}: {label}", row.title),
+                ));
+            }
+        }
+        horizon_client::touch::set_mod_keys(keys);
+    }
+    /// The key mod `id`'s key `name` is on now: a running mod's, else the player's choice for a
+    /// native mod's, else its default.
+    fn android_mod_binding(&self, id: &str, name: &str) -> Option<String> {
+        if let Some(k) = self
+            .running_mod_keys()
+            .into_iter()
+            .find(|k| k.id == id && k.name == name)
+        {
+            return Some(k.key);
+        }
+        if let Some((_, key)) = self
+            .settings
+            .mods
+            .keys_of(id)
+            .into_iter()
+            .find(|(n, _)| *n == name)
+        {
+            return Some(key.to_owned());
+        }
+        self.settings
+            .mods
+            .installed
+            .iter()
+            .filter(|row| row.id == id)
+            .filter_map(|row| row.native.as_ref())
+            .flat_map(|page| page.keys.iter())
+            .find(|[n, _, _]| n == name)
+            .map(|[_, _, default]| default.clone())
+    }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
+            // A mod's key: only the mods hear it, on whatever key it is bound to.
+            if let Some((id, key_name)) = horizon_client::touch::mod_key(&name) {
+                let Some(bound) = self.android_mod_binding(id, key_name) else {
+                    continue;
+                };
+                if let Some(key) = horizon_client::keybinds::key_code(&bound) {
+                    self.mod_key(key, down, false);
+                    self.native_key_event(key, down, false);
+                } else if let Some(button) = horizon_client::keybinds::mouse_button(&bound) {
+                    self.mod_mouse_key(button, down);
+                    self.native_mouse_event(button, down);
+                }
+                continue;
+            }
             if let Some(mapping) = name.strip_prefix("action:") {
                 let default = horizon_client::keybinds::KeyBinds::default_of(mapping);
                 let result = if let Some(key) = horizon_client::keybinds::key_code(default) {

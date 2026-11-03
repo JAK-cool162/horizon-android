@@ -11,6 +11,18 @@ panel beside the overview: the account, the version and profile, the mods enable
 **Launch** button; the installation's stages and progress stay on the same page. The pages
 keep their actions, settings and keyboard/controller focus order.
 
+**Controls**, beside **Launch**, starts the game on its title screen with the on-screen
+controls editor open, so a layout can be arranged before joining a world (the saved server
+is not joined). When a custom button's key is chosen, **Game action** lists the mods' keys
+first, as `Mod: what it does`: the running `.hmod` keys and the native mods' keys. Such a
+button presses the mod's key on whatever key it is bound to and reaches only the mods; it
+stays in the layout while its mod is off.
+
+The Mods, Resource packs and Shaders pages show each result's icon (fetched over HTTPS once
+per session, at most 2 MiB, four at a time), where it comes from, and how it runs here with
+the newest Minecraft version it lists: **Works**, **Partly** (an older version, or a Java
+shader pack run through the translator) or **Doesn't run** (a Java mod).
+
 ## Importing from another Horizon app
 
 Setup > **Import from another Horizon app** opens Android's folder picker at the official

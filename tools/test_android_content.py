@@ -27,6 +27,7 @@ curve25519-dalek = { version = "=4.1.3", default-features = false }
 salsa20 = "=0.10.2"
 poly1305 = "=0.8.0"
 getrandom = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 ''', encoding='utf-8')
     lock=tomllib.loads((ROOT / 'Cargo.lock').read_text(encoding='utf-8'))
     version=next(p['version'] for p in lock['package'] if p['name']=='zip' and p['version'].startswith('9.'))
@@ -44,6 +45,7 @@ mod osk { pub enum Output { Text(String), Backspace, Enter, Close } }
 #[path = "../../../../crates/horizon-client/src/android/native_build_plan.rs"] mod native_build_plan;
 #[path = "../../../../crates/horizon-client/src/android/sealed_box.rs"] mod sealed_box;
 #[path = "../../../../crates/horizon-client/src/android/import_plan.rs"] mod import_plan;
+#[path = "../../../../crates/horizon-client/src/android/thumbnails.rs"] mod thumbnails;
 #[path = "../../../../crates/horizon-client/src/android/document_store.rs"] mod document_store;
 #[path = "../../../../crates/horizon-client-render/src/graphics_startup.rs"] mod graphics_startup;
 #[path = "../../../../crates/horizon-client/src/android_resources.rs"] mod android_resources;
