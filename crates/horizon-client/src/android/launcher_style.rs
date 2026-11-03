@@ -248,11 +248,12 @@ pub fn account_chip(ui: &mut Ui, [x, y, w, h]: [f32; 4], status: &str, signed_in
     );
 }
 
-/// "Signed in: Alex" as ("Signed in", "Alex"); a status without a name is its own name.
+/// "Signed in: Alex" as ("Signed in", "Alex"); without a name, a sign-in prompt.
 pub fn split_status(status: &str) -> (&str, &str) {
     match status.split_once(": ") {
         Some((state, name)) if !name.trim().is_empty() => (state, name),
-        _ => ("Tap to sign in", status),
+        _ if status.starts_with("Signing") => (status, "Account"),
+        _ => ("Tap to sign in", "Not signed in"),
     }
 }
 
