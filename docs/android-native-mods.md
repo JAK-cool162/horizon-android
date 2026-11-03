@@ -47,6 +47,50 @@ the new `use` step and `drops` expectation. An APK with this runtime (level 8) i
 once; after that such mods only need importing. An older APK does not load a mod that calls
 `break_blocks` and says it needs a newer Horizon; older mods keep working on this one.
 
+## The mod bridge: APIs that native mods add
+
+Adding every function to the game's mod API by hand does not scale. With the **mod bridge**
+(API level 9), a native mod defines an API of its own, and sandboxed `.hmod` mods call it by
+name:
+
+```
+.hmod (WebAssembly, loads at runtime)  --bridge::call("extras", "command", ...)-->
+    the game  -->  .hnmod (native, compiled in) serves "extras"  --reply-->  .hmod
+```
+
+- The `.hnmod` serves the API on two hook points: `native_bridge_apis` lists its name and
+  version, and `native_bridge_call` answers calls. It can publish values
+  (`native_bridge_publish`, read with `bridge::get`) and send events to every mod
+  (`native_bridge_event`). It runs as native code, so it can use anything the game can.
+- The `.hmod` declares capability `bridge` (experimental: `experimental = ["bridge"]`); the
+  player sees "use the APIs your native mods (.hnmod) add to the game" before turning it on.
+  It checks `bridge::version("extras")` and calls `bridge::call(api, function, args)`.
+  Arguments and answers are text in the form the API documents (JSON is common). The answer
+  arrives as `bridge_reply(id, ...)` before the next tick's hooks, when the server's state is
+  whole.
+- The `.hnmod` still has to be compiled into the APK once. Mods using its API do not:
+  new `.hmod` mods for it only need importing. One shared `.hnmod` can serve any number of
+  `.hmod` mods.
+
+The examples:
+
+| Example | What it is |
+|---|---|
+| [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `extras`: `command` runs a vanilla command as the server's console (permission level 4), and it publishes the server's `tps` and `mspt`. A mod using it can do what a server operator can. |
+| [`examples/welcome-kit`](../crates/horizon-mod-sdk/examples/welcome-kit) | A `.hmod` using it: each new player gets a starter kit once, and `/tps` shows the server's tick rate. Without the Extras API it tells the player which `.hnmod` to install. |
+
+Package the native mod with `python3 tools/android_native_mods.py pack
+crates/horizon-mod-sdk/examples/native/extras_api`. The bridge's hook points are not numbered
+yet (`tools/native-hook-fragments/mod_bridge.json`), so `pack` pins the mod to the commit it
+was packed on instead of writing `hooks`, and the in-app build applies it with
+`--allow-version-mismatch`. A `.hmod`'s sandbox scripts can stand in for a native API:
+`[bridge.extras]` with its `version`, `values` and `replies` (or `errors`) per function,
+`bridge-event = { api, name, data }` in a step, and `expect.calls`. Its answers arrive within
+the step (see welcome-kit's `tests/`).
+
+The bridge runs only in the game it is called in: a server mod's calls are answered by the
+server's native mods, a client mod's by the window's.
+
 ## In the launcher
 
 - **Get one.** The Mods tab lists the registry's native mods with an `.hnmod` badge and a
@@ -198,7 +242,8 @@ desktop; their crates must compile for Android.
 ## Limits
 
 - No on-phone compiler and no dynamic loading of native code: changing the `.hnmod` mods
-  means a new APK. Sandboxed `.hmod` mods, which the API keeps growing for, do not.
+  means a new APK. Sandboxed `.hmod` mods do not, including those using a `.hnmod`'s API
+  through the [mod bridge](#the-mod-bridge-apis-that-native-mods-add).
 - A mod pinned to another Horizon commit may fail to apply or to compile on this fork.
 - The fixed Android bundle wins over a `.hnmod` of the same id; to try another version of
   Zoom, Minimap, Recipes or SmartF3, the fixed copy would have to be removed from the

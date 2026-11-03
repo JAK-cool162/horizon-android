@@ -134,6 +134,14 @@ class AuthoringTests(unittest.TestCase):
             with self.assertRaises(tool.ModError):
                 tool.new_mod('hello_box', folder)
 
+    def test_a_module_with_inner_docs_is_refused_before_a_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = tool.new_mod('docs_box', Path(temporary) / 'docs_box')
+            runtime = folder / 'runtime.rs'
+            runtime.write_text('//! My mod.\n' + runtime.read_text())
+            with self.assertRaises(tool.ModError):
+                tool.pack(folder, None, self.tree, None)
+
     def test_a_mod_on_a_hook_without_its_api_number_is_pinned(self):
         target = "horizon_client::game::native_hooks::Game<'_>::native_bridge_call"
         tree = tool.Tree(game='26.3', hooks=80, bundled=[], mixins_rev=REV, pending=frozenset([target]))

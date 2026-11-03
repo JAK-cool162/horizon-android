@@ -1,11 +1,11 @@
-//! Extras API: the native API `extras` for sandboxed `.hmod` mods (capability `bridge`), which
-//! the game gets as `crate::game::mod_extras_api`. Version 1:
-//!
-//! - function `command`, server mods: runs one vanilla command line (with or without its slash)
-//!   as the server's console does, at permission level 4. The answer is empty when it ran, an
-//!   error when it failed.
-//! - values `tps` and `mspt`, on the server: the ticks a second it keeps up and the milliseconds
-//!   its ticks take, with one decimal, as `/tick query` reports them.
+// Extras API: the native API `extras` for sandboxed `.hmod` mods (capability `bridge`), which
+// the game gets as `crate::game::mod_extras_api`. Version 1:
+//
+// - function `command`, server mods: runs one vanilla command line (with or without its slash)
+//   as the server's console does, at permission level 4. The answer is empty when it ran, an
+//   error when it failed.
+// - values `tps` and `mspt`, on the server: the ticks a second it keeps up and the milliseconds
+//   its ticks take, with one decimal, as `/tick query` reports them.
 
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "extras_api";

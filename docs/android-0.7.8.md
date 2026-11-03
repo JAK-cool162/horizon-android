@@ -52,6 +52,14 @@ optional `use-events.block-used` event (a player right-clicked a watched block).
 example `right-harvest` replants ripe crops on right-click as a runtime mod, without an
 APK build. See [mods that load without a rebuild](android-native-mods.md#api-level-8-more-of-the-game-without-a-rebuild).
 
+## The mod bridge (API level 9)
+
+Native mods can serve APIs of their own to sandboxed mods: capability `bridge` (`version`,
+`get`, `call`, with `bridge_reply` and `bridge_event` back), and the hook points
+`native_bridge_apis` and `native_bridge_call`. New APIs then come as shareable `.hnmod` files
+instead of changes to the game's mod API. Examples: the `extras_api` native mod and the
+`welcome-kit` mod that uses it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
+
 ## Verification
 
 - Android ARM64 Clippy with warnings denied passed.
@@ -65,3 +73,7 @@ APK build. See [mods that load without a rebuild](android-native-mods.md#api-lev
 - API level 8: the mod sandbox suite and the API reference test passed, Right Harvest's
   sandbox script passed (4 steps), and Clippy with warnings denied passed for
   horizon-mods, the SDK and the example mods (wasm32) and cargo-horizon-mod.
+- The mod bridge: the mod sandbox suite (33 tests, including that `bridge` needs its
+  capability), welcome-kit's three sandbox scripts (with the Extras API, without it, and with
+  failing calls), ARM64 Clippy with warnings denied and a host check without code mods passed.
+  Not yet verified on a device: the Extras API in a running game.

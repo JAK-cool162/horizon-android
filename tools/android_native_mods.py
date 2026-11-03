@@ -487,7 +487,8 @@ bindings = [
   {{ name = "corners", ty = "&mut horizon_client::extras_hud::Corners", value = "&mut *corners" }},
 ]
 """,
-    'runtime.rs': """//! {title}: the mod's own code, which the game gets as `crate::game::mod_{id}`.
+    'runtime.rs': """// {title}: the mod's own code, which the game gets as `crate::game::mod_{id}`.
+// A module file takes no inner attributes or `//!` docs: horizon-mixins refuses them.
 
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "{id}";
@@ -549,6 +550,18 @@ def new_mod(mod_id: str, folder: Path) -> Path:
     return folder
 
 
+def check_modules(folder: Path, toml: dict) -> None:
+    """A module file starting with inner attributes or docs, which horizon-mixins refuses."""
+    for module in toml.get('module', []):
+        source = folder / str(module.get('source', ''))
+        if not source.is_file():
+            raise ModError(f'{folder}: module {module.get("id")}: no file {source.name}')
+        text = source.read_text(encoding='utf-8').lstrip()
+        if text.startswith(('//!', '/*!', '#!')):
+            raise ModError(f'{source}: a module file cannot start with //! docs or #![...] '
+                           'attributes (horizon-mixins refuses them): use // comments')
+
+
 def pending_hooks(toml: dict, tree: Tree) -> list[str]:
     """The injections' targets that are hook points still waiting for their API number."""
     return [str(i['target']) for i in toml.get('injection', []) if str(i.get('target', '')) in tree.pending]
@@ -576,6 +589,7 @@ def pack(folder: Path, out: Path | None, tree: Tree, hooks: int | None) -> Path:
     if (folder / MANIFEST).is_file():
         raise ModError(f'{folder} is an unpacked .hnmod already: zip it as it is')
     toml = read_mixin(folder)
+    check_modules(folder, toml)
     mod_id, version = toml['mod']['id'], str(toml['mod']['version'])
     text = (folder / 'horizon-mixin.toml').read_text(encoding='utf-8')
     horizon = str(toml.get('compatibility', {}).get('horizon_revision', ''))
