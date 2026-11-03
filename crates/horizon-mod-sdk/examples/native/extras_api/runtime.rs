@@ -36,7 +36,7 @@ pub fn command_line(args: &str) -> Result<&str, String> {
 }
 
 /// A mod's call to `extras`: its answer.
-pub fn serve(
+pub(super) fn serve(
     game: &mut crate::game::Game<'_>,
     call: &crate::game::native_hooks::NativeBridgeCall<'_>,
 ) -> Result<String, String> {
