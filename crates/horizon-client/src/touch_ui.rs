@@ -167,6 +167,21 @@ impl TouchUi {
         self.relative = None;
         self.relative_click = None;
     }
+    /// The touch `id` went on outside the menus (a dialog closed under the finger, a menu
+    /// was replaced): a gesture or drag it began there ends with it. Left in place, it would
+    /// own every later menu touch and no tap would click again.
+    pub fn forget(&mut self, id: u64) {
+        if self
+            .gesture
+            .as_ref()
+            .is_some_and(|(owner, ..)| *owner == id)
+        {
+            self.gesture = None;
+        }
+        if self.pointer_drag == Some(id) {
+            self.pointer_drag = None;
+        }
+    }
     pub fn cancel_relative(&mut self) {
         self.relative = None;
         self.relative_click = None;
@@ -591,6 +606,26 @@ mod tests {
         assert!(matches!(
             u.gesture(1, [20.0, 140.0], TouchPhase::Ended),
             Gesture::None
+        ));
+    }
+    #[test]
+    fn a_touch_ending_outside_the_menus_does_not_block_the_next_tap() {
+        let mut u = TouchUi::default();
+        // Finger 1 lands on a dialog, which closes under it: its end goes to the game.
+        u.gesture(1, [20.0, 20.0], TouchPhase::Started);
+        u.forget(1);
+        // The next dialog's tap clicks.
+        u.gesture(2, [40.0, 40.0], TouchPhase::Started);
+        assert!(matches!(
+            u.gesture(2, [40.0, 40.0], TouchPhase::Ended),
+            Gesture::Tap
+        ));
+        // Another finger's end leaves a tap in progress alone.
+        u.gesture(3, [40.0, 40.0], TouchPhase::Started);
+        u.forget(4);
+        assert!(matches!(
+            u.gesture(3, [40.0, 40.0], TouchPhase::Ended),
+            Gesture::Tap
         ));
     }
     #[test]

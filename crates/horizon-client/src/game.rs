@@ -16302,6 +16302,10 @@ impl Game<'_> {
                 return;
             }
             if !self.pad_in_menu() || inventory_control {
+                if !self.pad_in_menu() {
+                    // A touch begun on a menu that closed under it ends here, not there.
+                    self.pad.touch_ui.forget(touch.id);
+                }
                 if !crate::touch_visible() && !self.settings.keypad.enabled {
                     return;
                 }
