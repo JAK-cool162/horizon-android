@@ -216,6 +216,14 @@ pub struct LocalItem {
     pub enabled: bool,
     /// A native mod's place in this build; `None` for other kinds.
     pub native: Option<horizon_client::content_files::NativeStatus>,
+    /// A `.hmod`'s id from its manifest: what the game turns on, whatever the
+    /// file is called (one copied in through Files keeps its own name).
+    pub id: Option<String>,
+}
+
+/// The id the mods list knows a `.hmod` by: its manifest's, else its file name's.
+pub fn hmod_id(item: &LocalItem) -> Option<&str> {
+    item.id.as_deref().or_else(|| item.file.strip_suffix(".hmod"))
 }
 
 /// The native mods compiled into this APK (`tools/android_native_mods.py`), `id@version,...`.
@@ -296,7 +304,13 @@ impl Catalog {
             .map(|e| (e.source, e.project.clone()))
             .collect();
         let on = horizon_client::mod_list::ModList::load(&game);
-        self.bundled_enabled = on.enabled.difference(&on.disabled).cloned().collect();
+        // Only the APK's fixed copies: the list also holds `.hmod` ids, and those of removed mods.
+        self.bundled_enabled = horizon_client::mod_list::ANDROID_BUNDLED
+            .iter()
+            .map(|(id, _, _)| *id)
+            .filter(|id| on.enabled.contains(*id) && !on.disabled.contains(*id))
+            .map(str::to_owned)
+            .collect();
         let settings = horizon_client::settings::Settings::load(&game.join("options.txt"));
         self.local.clear();
         for kind in horizon_client::content_files::Kind::ALL {
@@ -313,6 +327,7 @@ impl Catalog {
                     continue;
                 }
                 let mut native = None;
+                let mut id = None;
                 let mut title = name.clone();
                 let enabled = match kind {
                     horizon_client::content_files::Kind::NativeMods => {
@@ -353,9 +368,16 @@ impl Catalog {
                     horizon_client::content_files::Kind::Shaders => {
                         settings.horizon.shader_pack == name
                     }
-                    horizon_client::content_files::Kind::Mods => name
-                        .strip_suffix(".hmod")
-                        .is_some_and(|id| on.enabled.contains(id)),
+                    horizon_client::content_files::Kind::Mods => {
+                        if let Ok(package) = horizon_mods::Package::read(&entry.path()) {
+                            let m = package.manifest;
+                            title = format!("{} {}", m.name, m.version);
+                            id = Some(m.id);
+                        }
+                        id.as_deref()
+                            .or_else(|| name.strip_suffix(".hmod"))
+                            .is_some_and(|id| on.enabled.contains(id))
+                    }
                 };
                 self.local.push(LocalItem {
                     kind,
@@ -363,6 +385,7 @@ impl Catalog {
                     title,
                     enabled,
                     native,
+                    id,
                 });
             }
         }
@@ -732,7 +755,7 @@ impl Catalog {
                     return;
                 }
                 let mut on = horizon_client::mod_list::ModList::load(&game);
-                if let Some(id) = item.file.strip_suffix(".hmod") {
+                if let Some(id) = hmod_id(&item) {
                     if item.enabled {
                         on.enabled.remove(id);
                     } else {
@@ -856,7 +879,7 @@ impl Catalog {
             settings.save(&path);
             if item.kind == horizon_client::content_files::Kind::Mods {
                 let mut on = horizon_client::mod_list::ModList::load(&game);
-                if let Some(id) = item.file.strip_suffix(".hmod") {
+                if let Some(id) = hmod_id(&item) {
                     on.enabled.remove(id);
                 }
                 on.save(&game);

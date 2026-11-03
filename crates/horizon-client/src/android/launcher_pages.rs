@@ -563,7 +563,7 @@ impl Launcher {
                 let summary = ui.fit_text(
                     Face::Regular,
                     13.0,
-                    &format!("{fixed} native  ·  {sandboxed} .hmod enabled"),
+                    &format!("{fixed} built in  ·  {sandboxed} .hmod on"),
                     pw - 32.0,
                 );
                 ui.text(
@@ -996,7 +996,18 @@ impl Launcher {
                         );
                         let detail = match &phase {
                             Phase::Idle => {
-                                "On your GitHub fork: the phone cannot compile Rust".to_owned()
+                                let built: Vec<String> = crate::catalog::built_native_mods()
+                                    .iter()
+                                    .map(|(id, version)| format!("{id} {version}"))
+                                    .collect();
+                                if built.is_empty() {
+                                    "On your GitHub fork: the phone cannot compile Rust".to_owned()
+                                } else {
+                                    format!(
+                                        "Built into this APK: {}. Builds run on your GitHub fork",
+                                        built.join(", ")
+                                    )
+                                }
                             }
                             Phase::Working(text) => text.clone(),
                             Phase::Ready => {
