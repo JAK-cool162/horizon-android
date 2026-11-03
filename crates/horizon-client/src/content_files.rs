@@ -91,6 +91,32 @@ pub fn native_manifest(path: &Path) -> Result<horizon_mods::index::native::Manif
     Ok(manifest)
 }
 
+/// Whether the native mod `id` at `path` cannot play in an APK on any source: it has
+/// post-build steps (they run in a desktop version folder) or adds a module to the desktop
+/// binary's own files, which the Android library does not compile. A conservative reading
+/// of its `horizon-mixin.toml`; `tools/android_native_mods.py` parses it.
+pub fn native_desktop_only(path: &Path, id: &str) -> bool {
+    let read = || -> Option<String> {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+        let entry = zip
+            .by_name(&format!("mixins/{id}/horizon-mixin.toml"))
+            .ok()?;
+        let mut text = String::new();
+        entry.take(1 << 20).read_to_string(&mut text).ok()?;
+        Some(text)
+    };
+    read().is_some_and(|text| desktop_only_mixin(&text))
+}
+fn desktop_only_mixin(text: &str) -> bool {
+    text.lines().any(|line| {
+        let key: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+        key.starts_with("[[post_build]]")
+            || key.starts_with("post_build=")
+            || key.contains("\"crates/horizon-client/src/main.rs\"")
+            || key.contains("\"crates/horizon-client/src/bin/")
+    })
+}
+
 /// The native mods a build was compiled with: `id@version` entries separated by commas
 /// (`HORIZON_ANDROID_NATIVE_MODS`, set by `tools/android_native_mods.py`).
 pub fn built_native_mods(list: &str) -> Vec<(&str, &str)> {
@@ -465,6 +491,28 @@ mod tests {
             NativeStatus::Incompatible(_)
         ));
         assert!(NativeStatus::BuiltIn.plays() && !NativeStatus::NeedsBuild.plays());
+    }
+    #[test]
+    fn desktop_only_native_mods_are_recognised() {
+        let module = |file: &str| {
+            format!("[[module]]\nid = \"m\"\nfile = \"{file}\"\nname = \"m\"\nsource = \"m.rs\"\n")
+        };
+        assert!(desktop_only_mixin(
+            "[mod]\nid = \"a\"\n[[ post_build ]]\ncrate = \"e\"\n"
+        ));
+        assert!(desktop_only_mixin(
+            "post_build = [{ crate = \"e\", bin = \"b\" }]\n"
+        ));
+        assert!(desktop_only_mixin(&module(
+            "crates/horizon-client/src/main.rs"
+        )));
+        assert!(desktop_only_mixin(&module(
+            "crates/horizon-client/src/bin/horizon-ctl/main.rs"
+        )));
+        assert!(!desktop_only_mixin(&module(
+            "crates/horizon-client/src/game.rs"
+        )));
+        assert!(!desktop_only_mixin("[mod]\nid = \"post_build_helper\"\n"));
     }
     #[test]
     fn streamed_copy_is_bounded_and_cancellable() {

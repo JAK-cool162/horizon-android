@@ -63,6 +63,7 @@ class Mod:
     hooks: int | None
     files: dict[str, bytes] = field(repr=False)
     source: str = ''
+    mixin: dict = field(default_factory=dict, repr=False)
 
     @property
     def label(self) -> str:
@@ -116,7 +117,7 @@ def read_bundle(files: dict[str, bytes], source: str) -> Mod:
             or toml.get('compatibility', {}).get('horizon_revision') != manifest['horizon']):
         raise ModError(f'{source}: native manifest and mixin identity/revision differ')
     return Mod(mod_id, manifest['version'], manifest['game'], manifest['horizon'],
-               manifest['mixins'], hooks, files, source)
+               manifest['mixins'], hooks, files, source, toml)
 
 
 def safe_name(name: str) -> bool:
@@ -216,6 +217,23 @@ class Plan:
         return ','.join(f'{m.id}@{m.version}' for m in self.build)
 
 
+# Game files the Android library does not compile: its root is android_main.rs, not the
+# desktop binary's main.rs, and horizon-ctl is a desktop tool.
+DESKTOP_ONLY = ('crates/horizon-client/src/main.rs', 'crates/horizon-client/src/bin/')
+
+
+def android_blocker(mod: Mod) -> str | None:
+    """Why `mod` cannot play in an APK, whatever source it is applied to."""
+    if mod.mixin.get('post_build'):
+        return ('it has post-build steps, which run in a desktop version folder; '
+                'an APK has none')
+    for module in mod.mixin.get('module', []):
+        file = str(module.get('file', ''))
+        if file.startswith(DESKTOP_ONLY):
+            return f'it adds a module to {file}, which the Android library does not compile'
+    return None
+
+
 def plan(mods: list[Mod], tree: Tree) -> Plan:
     """Which mods a build compiles, which it skips and why, and which pin another Horizon commit."""
     seen: set[str] = set()
@@ -229,6 +247,8 @@ def plan(mods: list[Mod], tree: Tree) -> Plan:
             continue
         if mod.game != tree.game:
             raise ModError(f'{mod.label} is for Minecraft {mod.game}; this source is {tree.game}')
+        if why := android_blocker(mod):
+            raise ModError(f'{mod.label} cannot be built for Android: {why}')
         if mod.hooks is not None and mod.hooks > tree.hooks:
             raise ModError(f'{mod.label} needs native hook points version {mod.hooks}; '
                            f'this source has {tree.hooks}: merge a newer upstream first')

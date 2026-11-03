@@ -91,6 +91,19 @@ class PlanTests(unittest.TestCase):
             with self.subTest(mods=[m.label for m in mods]), self.assertRaises(tool.ModError):
                 tool.plan(mods, self.tree)
 
+    def test_desktop_only_mods_are_refused_by_name(self):
+        tail = f'[mod]\nid = "sort"\nversion = "1.0.0"\n[compatibility]\nhorizon_revision = "{REV}"\n'
+        for extra in ('[[post_build]]\ncrate = "engine"\nbin = "bake"\n',
+                      '[[module]]\nid = "m"\nfile = "crates/horizon-client/src/main.rs"\n'
+                      'name = "m"\nsource = "m.rs"\n'):
+            with self.subTest(extra.split('\n')[0]):
+                mod = tool.read_zip(hnmod('sort', hooks=1, mixin=tail + extra), 'sort')
+                with self.assertRaisesRegex(tool.ModError, 'cannot be built for Android'):
+                    tool.plan([mod], self.tree)
+        game = tail + '[[module]]\nid = "m"\nfile = "crates/horizon-client/src/game.rs"\nname = "m"\nsource = "m.rs"\n'
+        self.assertEqual(len(tool.plan([tool.read_zip(hnmod('sort', hooks=1, mixin=game), 'sort')],
+                                       self.tree).build), 1)
+
     def test_this_source_is_read(self):
         tree = tool.Tree.read(ROOT)
         self.assertEqual(tree.game, '26.3')

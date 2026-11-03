@@ -940,6 +940,9 @@ impl Launcher {
                         Some(horizon_client::content_files::NativeStatus::Bundled) => {
                             "Native mod / this APK's fixed copy plays instead"
                         }
+                        Some(horizon_client::content_files::NativeStatus::Incompatible(_)) => {
+                            "Native mod / an APK of this source cannot build it"
+                        }
                         Some(_) => "Native mod / build an APK with it",
                         None => kind.label(),
                     };

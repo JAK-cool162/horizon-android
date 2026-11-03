@@ -23,7 +23,7 @@ and run without a rebuild.
   | **Build has X** | This APK was compiled with version X of this mod. |
   | **Needs build** | Build an APK with it (below). |
   | **Bundled copy** | The APK's fixed Android copy (Zoom, Minimap, Recipes, SmartF3) plays instead; enable it in the Mods tab. |
-  | **For Minecraft X**, **Needs newer Horizon** | Made for another game version, or for native hook points this source does not have yet. |
+  | **For Minecraft X**, **Needs newer Horizon**, **Desktop only** | Made for another game version, for native hook points this source does not have yet, or with desktop-only parts ([below](#which-mods-work)). |
 
 - **Files.** Android Files shows the profile's **Native Mods** folder
   (`horizon-native-mods/`) next to Mods, Resource Packs and Shader Packs.
@@ -73,6 +73,23 @@ links to `.hnmod` files. A run with it compiles those mods into the dev APK
 (`stage --in-place --trust-native-code --allow-version-mismatch`). Only people who can
 run the workflow can choose mods, and the APK is signed with the dev key: give it only
 mods you trust.
+
+## Which mods work
+
+Any valid `.hnmod` imports and shows its status. Building one into an APK works when:
+
+- it is for this game version (Minecraft 26.3);
+- it hooks only the native hook points (`hooks` in its manifest) at this source's version or
+  lower: the most portable kind, independent of the commit it was made on;
+- or, pinned to one Horizon commit, horizon-mixins still finds every function it hooks in
+  this fork (`--allow-version-mismatch`).
+
+These cannot be built for Android, whatever the source: mods with `[[post_build]]` steps
+(they run in a desktop version folder; an APK has none) and mods that add a module to the
+desktop binary's own files (`crates/horizon-client/src/main.rs`, `src/bin/`), which the
+Android library does not compile. Installed says **Desktop only** for them, and the build
+tool refuses them by name. Mods with their own crates and data files are staged as on
+desktop; their crates must compile for Android.
 
 ## Limits
 

@@ -304,18 +304,31 @@ impl Catalog {
                 let mut title = name.clone();
                 let enabled = match kind {
                     horizon_client::content_files::Kind::NativeMods => {
-                        let status =
-                            match horizon_client::content_files::native_manifest(&entry.path()) {
-                                Ok(manifest) => {
-                                    title = format!("{} {}", manifest.id, manifest.version);
-                                    native_status(&manifest)
-                                }
-                                Err(_) => {
+                        let status = match horizon_client::content_files::native_manifest(
+                            &entry.path(),
+                        ) {
+                            Ok(manifest) => {
+                                title = format!("{} {}", manifest.id, manifest.version);
+                                let status = native_status(&manifest);
+                                let desktop = horizon_client::content_files::native_desktop_only(
+                                    &entry.path(),
+                                    &manifest.id,
+                                );
+                                if desktop
+                                    && status
+                                        == horizon_client::content_files::NativeStatus::NeedsBuild
+                                {
                                     horizon_client::content_files::NativeStatus::Incompatible(
-                                        "Invalid .hnmod".into(),
+                                        "Desktop only".into(),
                                     )
+                                } else {
+                                    status
                                 }
-                            };
+                            }
+                            Err(_) => horizon_client::content_files::NativeStatus::Incompatible(
+                                "Invalid .hnmod".into(),
+                            ),
+                        };
                         let plays = status.plays();
                         native = Some(status);
                         plays
