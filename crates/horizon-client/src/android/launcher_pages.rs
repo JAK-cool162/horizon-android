@@ -77,7 +77,25 @@ pub(super) fn button(
 ) {
     let [x, y, w, h] = rect;
     // Fields and long value rows read from the left; actions are centred pills (Material 3).
-    let field = matches!(action, Action::Field(_)) || (w > 260.0 && !accent);
+    let field = matches!(
+        action,
+        Action::Field(_)
+            | Action::ToggleSection(_)
+            | Action::Renderer
+            | Action::RenderScale
+            | Action::WorkerLimit
+            | Action::CacheBudget
+            | Action::GameFiles
+            | Action::WorldFiles
+            | Action::Profile
+            | Action::Orientation
+            | Action::InputHost
+            | Action::Aspect
+            | Action::DisplayHz
+            | Action::RecordPerformance
+            | Action::ExportDiagnostics
+            | Action::ExportPerformance
+    );
     let radius = if field { 12.0 } else { (h / 2.0).min(22.0) };
     ui.rounded(
         x,
@@ -487,7 +505,7 @@ impl Launcher {
                 Face::Regular,
                 13.0,
                 &format!(
-                    "Horizon Android {}  ·  Profile {}  v",
+                    "Horizon Android {}  ·  Profile {}",
                     crate::backend::VERSION,
                     self.catalog.config.profile
                 ),
