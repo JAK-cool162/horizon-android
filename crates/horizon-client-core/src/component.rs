@@ -207,6 +207,22 @@ fn style_flag(v: Option<&Value>) -> Option<bool> {
     }
 }
 
+/// `Identifier.parse`: `namespace:path`, `minecraft` when the namespace is left out; none
+/// for characters an identifier can't hold.
+fn identifier(id: &str) -> Option<String> {
+    let (namespace, path) = id.split_once(':').unwrap_or(("minecraft", id));
+    let ok = |s: &str, slash: bool| {
+        s.bytes().all(|b| {
+            b.is_ascii_lowercase()
+                || b.is_ascii_digit()
+                || matches!(b, b'_' | b'-' | b'.')
+                || (slash && b == b'/')
+        })
+    };
+    (!path.is_empty() && ok(namespace, false) && ok(path, true))
+        .then(|| format!("{namespace}:{path}"))
+}
+
 fn untrusted_http_url(url: &str) -> bool {
     // ExtraCodecs.UNTRUSTED_URI / Util.parseAndValidateUntrustedUri: http and
     // https only, scheme case-insensitive.
@@ -249,6 +265,16 @@ fn parse_click_event(e: &serde_json::Map<String, Value>) -> Option<crate::text::
         Some("show_dialog") => e.get("dialog").map(|dialog| {
             crate::text::ClickEvent::ShowDialog(crate::scoreboard::json_to_tag(dialog))
         }),
+        // ClickEvent.Custom.CODEC: an `Identifier` and an optional NBT payload, sent back
+        // to the server when clicked (servers' dialogs and menus use it).
+        Some("custom") => {
+            text("id")
+                .and_then(|id| identifier(&id))
+                .map(|id| crate::text::ClickEvent::Custom {
+                    id,
+                    payload: e.get("payload").map(crate::scoreboard::json_to_tag),
+                })
+        }
         _ => None,
     }
 }
@@ -583,6 +609,41 @@ mod tests {
             Some(ClickEvent::OpenUrl("https://example.com".into()))
         );
         assert_eq!(text.spans[0].style.underlined, Some(true));
+    }
+
+    #[test]
+    fn custom_click_events_keep_their_id_and_payload() {
+        use crate::text::ClickEvent;
+        // A server's dialog line: `ClickEvent.Custom`, its payload any NBT.
+        let (v, _) = parse_snbt(
+            r#"{text:"Spear - 1 player",click_event:{action:custom,id:"kits:queue",payload:{kit:"spear",slot:3}}}"#,
+        )
+        .unwrap();
+        let text = to_text(&v, &mut |_| Text::empty());
+        let Some(ClickEvent::Custom { id, payload }) = &text.spans[0].style.click else {
+            panic!("{:?}", text.spans[0].style.click);
+        };
+        assert_eq!(id, "kits:queue");
+        let payload = crate::scoreboard::tag_to_json(payload.as_ref().expect("a payload"));
+        assert_eq!(payload["kit"], "spear");
+        assert_eq!(payload["slot"].as_i64(), Some(3));
+        // No payload, and the default namespace.
+        let v =
+            serde_json::json!({"text": "x", "click_event": {"action": "custom", "id": "close"}});
+        assert_eq!(
+            to_text(&v, &mut |_| Text::empty()).spans[0].style.click,
+            Some(ClickEvent::Custom {
+                id: "minecraft:close".into(),
+                payload: None
+            })
+        );
+        // An id no `Identifier` can be: no click.
+        let v =
+            serde_json::json!({"text": "x", "click_event": {"action": "custom", "id": "Bad Id"}});
+        assert_eq!(
+            to_text(&v, &mut |_| Text::empty()).spans[0].style.click,
+            None
+        );
     }
 
     #[test]

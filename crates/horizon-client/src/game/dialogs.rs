@@ -844,6 +844,7 @@ impl Game<'_> {
                 Some(ClickEvent::RunCommand(command)) => Click::RunCommand(command),
                 Some(ClickEvent::CopyToClipboard(value)) => Click::CopyToClipboard(value),
                 Some(ClickEvent::ShowDialog(dialog)) => Click::ShowDialog(dialog),
+                Some(ClickEvent::Custom { id, payload }) => Click::Custom { id, payload },
                 Some(ClickEvent::OpenFile(_)) | None => return Ok(()),
             };
             let after = open.dialog.after_action;

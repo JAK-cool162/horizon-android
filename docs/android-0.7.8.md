@@ -63,6 +63,14 @@ command, as Fabric's callbacks do. Examples: the `extras_api` native mod (versio
 cancellable callbacks, player helpers, and the window's video options for client mods) and the
 `welcome-kit`, `spawn-guard` and `video-settings` mods that use it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
+## Server menus
+
+Text a server makes clickable with a `custom` click event (`ClickEvent.Custom`, since 1.21.6:
+an id and an optional payload sent back to the server) was read as plain text, so a server
+dialog's clickable lines (a kit list, tabs) did nothing. They now send
+`ServerboundCustomClickActionPacket` from a dialog, the chat and books, as vanilla does. A tap on
+a menu also no longer stays owned by a finger whose menu closed under it.
+
 ## Shader packs
 
 The shader pack translator (`crates/horizon-shaders`) is upstream's of 2026-11-03: about 60
