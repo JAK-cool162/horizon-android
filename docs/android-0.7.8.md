@@ -19,6 +19,14 @@ mods, resource and shader packs it shows are copied into this app's profile. No 
 add-on is overwritten; replaced settings keep a `.before-import` copy. Accounts and the
 downloaded Minecraft files are not exposed by any app, so they stay where they are.
 
+## Importing Minecraft's files
+
+**Import Minecraft files** (on Play before installing, and in Setup) reads a folder the player
+picks, such as a Java launcher's folder or a copied `.minecraft`, finds the 26.3 client and
+the asset objects, and puts those whose size and SHA-1 match Mojang's metadata in the
+installer's cache. The installer verifies them again and downloads only the rest. The
+installer's metadata lookup is shared with it (`official_install::wanted`).
+
 ## Native mods (.hnmod)
 
 `.hnmod` native mods can be downloaded from the Horizon catalog, imported from a file

@@ -3,7 +3,7 @@ use crate::Result;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{Read, Write},
     path::{Component, Path, PathBuf},
@@ -340,22 +340,10 @@ fn validate_manifest(bytes: &[u8], checksum: &str, version: &str, pins: &Value) 
     Ok(manifest)
 }
 
-pub fn install_with_progress(home: &Path, progress: impl Fn(InstallProgress) + Sync) -> Result<()> {
-    let _guard = INSTALLATION.lock().unwrap_or_else(|e| e.into_inner());
-    let report = |stage, done, total| progress(InstallProgress { stage, done, total });
-    report(InstallStage::Metadata, 0, 0);
+/// Mojang's verified metadata for the pinned version: its manifest, and its asset index
+/// (downloaded into `cache`, where the installer keeps it).
+fn metadata(cache: &Path) -> Result<(Value, Value)> {
     let version = horizon_core::VANILLA_VERSION;
-    let cache = download_cache(home);
-    let legacy = home.join(".local/downloads").join(version);
-    if cache != legacy && legacy.is_dir() && !cache.exists() {
-        let root = fs::canonicalize(home)?;
-        if fs::canonicalize(&legacy)? != root.join(".local/downloads").join(version) {
-            return Err("Refusing redirected legacy installer cache".into());
-        }
-        fs::create_dir_all(cache.parent().ok_or("Missing cache parent")?)?;
-        fs::rename(&legacy, &cache)?;
-    }
-    fs::create_dir_all(&cache)?;
     let pins: Value = serde_json::from_str(LOCK)?;
     let pins = &pins["minecraft"];
     let catalog = json(CATALOG)?;
@@ -378,6 +366,73 @@ pub fn install_with_progress(home: &Path, progress: impl Fn(InstallProgress) + S
     let index = Download::from(&manifest["assetIndex"], cache.join("asset-index.json"))?;
     index.get()?;
     let index: Value = serde_json::from_reader(index.open()?)?;
+    Ok((manifest, index))
+}
+
+/// The Mojang files an installation needs, so files the player already has (a Java
+/// launcher's `.minecraft`) can be put in the installer's cache before it downloads: there
+/// the installer finds them, checks their SHA-1 and size, and fetches only the rest.
+pub struct Wanted {
+    /// The installer's cache: `client.jar` and `objects/<sha1>`.
+    pub cache: PathBuf,
+    /// The client jar's SHA-1 and size.
+    pub client: (String, u64),
+    /// Each asset object's SHA-1 and size.
+    pub objects: HashMap<String, u64>,
+}
+
+pub fn wanted(home: &Path) -> Result<Wanted> {
+    let _guard = INSTALLATION.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = download_cache(home);
+    fs::create_dir_all(&cache)?;
+    let (manifest, index) = metadata(&cache)?;
+    let client = &manifest["downloads"]["client"];
+    let client = (
+        client["sha1"]
+            .as_str()
+            .ok_or("Missing client hash")?
+            .to_owned(),
+        client["size"].as_u64().ok_or("Missing client size")?,
+    );
+    let mut objects = HashMap::new();
+    for (name, object) in index["objects"]
+        .as_object()
+        .ok_or("Missing asset objects")?
+    {
+        if !cfg!(feature = "audio")
+            && (name.starts_with("minecraft/sounds/") || name == "minecraft/sounds.json")
+        {
+            continue;
+        }
+        let checksum = object["hash"].as_str().ok_or("Missing asset hash")?;
+        if checksum.len() == 40 && checksum.bytes().all(|c| c.is_ascii_hexdigit()) {
+            objects.insert(checksum.to_owned(), object["size"].as_u64().unwrap_or(0));
+        }
+    }
+    Ok(Wanted {
+        cache,
+        client,
+        objects,
+    })
+}
+
+pub fn install_with_progress(home: &Path, progress: impl Fn(InstallProgress) + Sync) -> Result<()> {
+    let _guard = INSTALLATION.lock().unwrap_or_else(|e| e.into_inner());
+    let report = |stage, done, total| progress(InstallProgress { stage, done, total });
+    report(InstallStage::Metadata, 0, 0);
+    let version = horizon_core::VANILLA_VERSION;
+    let cache = download_cache(home);
+    let legacy = home.join(".local/downloads").join(version);
+    if cache != legacy && legacy.is_dir() && !cache.exists() {
+        let root = fs::canonicalize(home)?;
+        if fs::canonicalize(&legacy)? != root.join(".local/downloads").join(version) {
+            return Err("Refusing redirected legacy installer cache".into());
+        }
+        fs::create_dir_all(cache.parent().ok_or("Missing cache parent")?)?;
+        fs::rename(&legacy, &cache)?;
+    }
+    fs::create_dir_all(&cache)?;
+    let (manifest, index) = metadata(&cache)?;
     let objects = index["objects"]
         .as_object()
         .ok_or("Missing asset objects")?;

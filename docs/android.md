@@ -52,6 +52,12 @@ beside the overview with the account, the version and profile, the mods enabled 
   Worlds with a name this app has already come in as `Name (imported)`; existing add-ons
   stay; settings files keep a `.before-import` copy. Minecraft's own files are not shared
   between apps, so a new app still downloads them once.
+- **Import Minecraft files** (Play before installing, and Setup): pick a folder holding
+  Minecraft (a Java launcher's folder in Files, or a copied `.minecraft`). The app finds
+  `versions/26.3/26.3.jar` and `assets/objects` a few levels down and copies the files
+  Minecraft 26.3 uses into the installer's cache, each checked against Mojang's SHA-1.
+  Assets are stored by hash, so another version's assets mostly count too. **Download
+  Minecraft** then fetches only what is still missing.
 - **Settings:** rendering mode, input mode, profile, server and orientation.
   Profiles keep separate saves and settings. Offline player names are edited
   alongside Microsoft sign-in in **Accounts**.

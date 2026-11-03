@@ -72,6 +72,7 @@ pub(super) enum Action {
     OpenTokenPage,
     PasteToken,
     ImportOtherApp,
+    ImportMinecraft,
 }
 
 pub(super) fn button(
@@ -474,6 +475,18 @@ impl Launcher {
                     );
                     let line = ui.fit_text(Face::Regular, 16.0, line, hw - 90.0);
                     ui.text(Face::Regular, 16.0, hx + 62.0, y + 2.0, color::MUTED, &line);
+                }
+                // Minecraft from a launcher or a .minecraft, instead of downloading it all.
+                let import_y = body + 3.0 * 40.0 + 16.0;
+                if !installed && import_y + 44.0 <= hy + hh - 12.0 {
+                    button(
+                        &mut ui,
+                        &mut self.targets,
+                        [hx + 24.0, import_y, (hw - 48.0).min(300.0), 44.0],
+                        "Import Minecraft files",
+                        Action::ImportMinecraft,
+                        false,
+                    );
                 }
             }
             // The panel.
@@ -1145,11 +1158,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (22.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (22.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -1194,6 +1207,11 @@ impl Launcher {
                     "Import from another Horizon app",
                     "Worlds, settings and add-ons".into(),
                     Action::ImportOtherApp,
+                ),
+                (
+                    "Import Minecraft files",
+                    "From a launcher or .minecraft: less to download".into(),
+                    Action::ImportMinecraft,
                 ),
                 ("Profile", format!("Profile {}", c.profile), Action::Profile),
                 (
@@ -1829,8 +1847,21 @@ impl Launcher {
             }
             Some(Action::ImportOtherApp) => {
                 crate::platform::hide();
-                if let Err(e) = crate::data_import::begin(self.catalog.config.game_home(&self.home))
-                {
+                if let Err(e) = crate::data_import::begin(
+                    crate::data_import::Mode::OtherApp,
+                    self.catalog.config.game_home(&self.home),
+                    self.home.clone(),
+                ) {
+                    self.catalog.status = e;
+                }
+            }
+            Some(Action::ImportMinecraft) => {
+                crate::platform::hide();
+                if let Err(e) = crate::data_import::begin(
+                    crate::data_import::Mode::Minecraft,
+                    self.catalog.config.game_home(&self.home),
+                    self.home.clone(),
+                ) {
                     self.catalog.status = e;
                 }
             }
