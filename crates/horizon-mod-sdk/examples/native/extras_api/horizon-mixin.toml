@@ -1,0 +1,59 @@
+[mod]
+id = "extras_api"
+version = "1.0.0"
+priority = 100
+
+# The Extras API: an API of this native mod's own for sandboxed .hmod mods with capability
+# `bridge` (docs/android-native-mods.md, "The mod bridge"). It hooks only native hook points;
+# the bridge's have no hook API number yet, so `android_native_mods.py pack` pins it to the
+# commit it was packed on. What it serves: runtime.rs.
+
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "mod_extras_api"
+source = "runtime.rs"
+
+# Its row in Options > Mods, with its On/Off switch.
+[[injection]]
+id = "list"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+helper = "list.rs"
+bindings = [
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
+
+# The API it serves.
+[[injection]]
+id = "apis"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_bridge_apis"
+helper = "apis.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "apis", ty = "&mut Vec<(String, u32)>", value = "&mut *apis" },
+]
+
+# Mods' calls to it.
+[[injection]]
+id = "call"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_bridge_call"
+helper = "call.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "call", ty = "&crate::game::native_hooks::NativeBridgeCall<'_>", value = "call" },
+  { name = "reply", ty = "&mut Option<Result<String, String>>", value = "&mut *reply" },
+]
+
+# The values it publishes, at each server tick's end.
+[[injection]]
+id = "tick"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_server_tick"
+helper = "tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "phase", ty = "crate::game::native_lifecycle::ServerTickPhase", value = "phase" },
+]
