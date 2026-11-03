@@ -22,7 +22,9 @@ build, which the APK's fixed copy replaces (Zoom, Minimap, Recipes, SmartF3), an
 APK can hold (another game version, newer hook points, desktop-only post-build steps or
 modules).
 
-`tools/android_native_mods.py` builds an APK with native mods compiled in, starts your own
+**Build APK** in Installed > Native Mods builds an APK with them on the player's own GitHub
+fork (its Android dev workflow, a fine-grained token in Setup), then downloads and installs
+it. `tools/android_native_mods.py` builds an APK with native mods compiled in, starts your own
 mod from a template (`new`) and packages it as a `.hnmod` (`pack`), and the Android
 dev workflow takes a `native_mods` input of `.hnmod` links. See
 [native mods on Android](android-native-mods.md).

@@ -56,6 +56,8 @@ pub struct Config {
     pub device: crate::device_preferences::Settings,
     pub shader_source: crate::shader_catalog::Origin,
     pub mod_source: crate::shader_catalog::Origin,
+    /// `owner/name` of the GitHub fork that builds APKs with native mods (empty: this APK's own).
+    pub github_repo: String,
 }
 
 pub use horizon_client::android_gamepad::InputMode as InputHost;
@@ -199,6 +201,12 @@ pub struct Catalog {
     worker: Option<mpsc::Receiver<Result<Reply, String>>>,
     search_worker: Option<mpsc::Receiver<Result<Vec<Project>, String>>>,
     searches: crate::search_queue::Queue<(Page, browser::SourceId, String, usize), Vec<Project>>,
+    /// The in-app native build on the player's GitHub fork.
+    pub native_build: crate::native_build::NativeBuild,
+    /// A GitHub token being typed; saved to the Keystore-encrypted store on Enter, never here.
+    pub github_token_text: String,
+    pub github_token_saved: bool,
+    native_restored: bool,
 }
 #[derive(Clone)]
 pub struct LocalItem {
@@ -257,6 +265,10 @@ impl Catalog {
             worker: None,
             search_worker: None,
             searches: crate::search_queue::Queue::new(),
+            native_build: Default::default(),
+            github_token_text: String::new(),
+            github_token_saved: false,
+            native_restored: false,
         };
         result.refresh(home);
         result
@@ -304,17 +316,17 @@ impl Catalog {
                 let mut title = name.clone();
                 let enabled = match kind {
                     horizon_client::content_files::Kind::NativeMods => {
-                        let status = match horizon_client::content_files::native_manifest(
-                            &entry.path(),
-                        ) {
-                            Ok(manifest) => {
-                                title = format!("{} {}", manifest.id, manifest.version);
-                                let status = native_status(&manifest);
-                                let desktop = horizon_client::content_files::native_desktop_only(
-                                    &entry.path(),
-                                    &manifest.id,
-                                );
-                                if desktop
+                        let status =
+                            match horizon_client::content_files::native_manifest(&entry.path()) {
+                                Ok(manifest) => {
+                                    title = format!("{} {}", manifest.id, manifest.version);
+                                    let status = native_status(&manifest);
+                                    let desktop =
+                                        horizon_client::content_files::native_desktop_only(
+                                            &entry.path(),
+                                            &manifest.id,
+                                        );
+                                    if desktop
                                     && status
                                         == horizon_client::content_files::NativeStatus::NeedsBuild
                                 {
@@ -324,11 +336,13 @@ impl Catalog {
                                 } else {
                                     status
                                 }
-                            }
-                            Err(_) => horizon_client::content_files::NativeStatus::Incompatible(
-                                "Invalid .hnmod".into(),
-                            ),
-                        };
+                                }
+                                Err(_) => {
+                                    horizon_client::content_files::NativeStatus::Incompatible(
+                                        "Invalid .hnmod".into(),
+                                    )
+                                }
+                            };
                         let plays = status.plays();
                         native = Some(status);
                         plays
@@ -409,6 +423,14 @@ impl Catalog {
         });
     }
     pub fn poll(&mut self, home: &Path) {
+        if !self.native_restored {
+            self.native_restored = true;
+            self.github_token_saved = crate::native_build::token().is_some();
+            self.native_build.restore(
+                &self.config.game_home(home),
+                crate::native_build::repository(&self.config.github_repo),
+            );
+        }
         let reply = self.worker.as_ref().and_then(|rx| match rx.try_recv() {
             Ok(v) => Some(v),
             Err(mpsc::TryRecvError::Disconnected) => Some(Err("Launcher worker stopped".into())),
@@ -740,6 +762,56 @@ impl Catalog {
         self.status = "Selection saved for the next game launch".into();
         self.refresh(home);
     }
+    /// The repository, token and `.hnmod` files an in-app native build needs, or what is missing.
+    /// Every native mod this APK could hold goes in, so the new APK keeps the ones it has.
+    pub fn native_build_inputs(
+        &self,
+        home: &Path,
+    ) -> Result<(String, String, Vec<PathBuf>), String> {
+        use horizon_client::content_files::{Kind as Folder, NativeStatus};
+        let folder = self
+            .config
+            .game_home(home)
+            .join(Folder::NativeMods.folder());
+        let mods: Vec<PathBuf> = self
+            .local
+            .iter()
+            .filter(|i| {
+                i.kind == Folder::NativeMods
+                    && matches!(
+                        i.native,
+                        Some(
+                            NativeStatus::NeedsBuild
+                                | NativeStatus::BuiltIn
+                                | NativeStatus::OtherVersion(_)
+                        )
+                    )
+            })
+            .map(|i| folder.join(&i.file))
+            .collect();
+        if mods.is_empty() {
+            return Err("No native mod to build: import a .hnmod first".into());
+        }
+        let repo = crate::native_build::repository(&self.config.github_repo)
+            .ok_or("Set Setup > GitHub repository to your fork (owner/name) first")?;
+        let token = crate::native_build::token().ok_or(
+            "Set Setup > GitHub token first: a fine-grained token for your fork with Contents and Actions read/write",
+        )?;
+        Ok((repo, token, mods))
+    }
+    pub fn build_native(&mut self, home: &Path) {
+        match self.native_build_inputs(home) {
+            Ok((repo, token, mods)) => {
+                self.status = format!(
+                    "Building an APK with {} native mod(s) on {repo}",
+                    mods.len()
+                );
+                self.native_build
+                    .start(&self.config.game_home(home), repo, token, mods);
+            }
+            Err(e) => self.status = e,
+        }
+    }
     pub fn remove_local(&mut self, home: &Path) {
         let Some(item) = self.pending_delete.take() else {
             return;
@@ -804,6 +876,8 @@ impl Catalog {
             Some("server") => &mut self.config.server,
             Some("render_scale") => &mut self.render_scale_text,
             Some("client_id") => &mut self.config.microsoft_client_id,
+            Some("github_repo") => &mut self.config.github_repo,
+            Some("github_token") => &mut self.github_token_text,
             _ => &mut self.query,
         };
         match out {
@@ -823,6 +897,18 @@ impl Catalog {
                             return;
                         }
                     }
+                }
+                if self.editing == Some("github_token") {
+                    let token = std::mem::take(&mut self.github_token_text);
+                    self.status = match crate::native_build::save_token(&token) {
+                        Ok(()) if token.trim().is_empty() => "GitHub token removed".into(),
+                        Ok(()) => "GitHub token saved, encrypted with the Android Keystore".into(),
+                        Err(e) => format!("Could not save the GitHub token: {e}"),
+                    };
+                    self.github_token_saved = crate::native_build::token().is_some();
+                }
+                if self.editing == Some("github_repo") {
+                    self.config.github_repo = self.config.github_repo.trim().to_owned();
                 }
                 self.editing = None;
                 let _ = self.config.save(home);

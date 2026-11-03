@@ -1,5 +1,5 @@
 name: Android dev APKs
-run-name: Android dev · ${{ github.sha }}
+run-name: Android dev · ${{ inputs.request || github.sha }}
 
 on:
   push:
@@ -24,7 +24,11 @@ on:
         type: boolean
         default: false
       native_mods:
-        description: Native mods to compile in (.hnmod https:// links, space-separated; you trust their code)
+        description: Native mods to compile in (.hnmod https:// links or native-mods/<id>.hnmod paths of the native-mods branch, space-separated; you trust their code)
+        type: string
+        default: ''
+      request:
+        description: A tag for the run's name (the app's in-app builds find their run by it)
         type: string
         default: ''
 
@@ -112,8 +116,28 @@ jobs:
         if: inputs.native_mods != ''
         env:
           NATIVE_MODS: ${{ inputs.native_mods }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          read -ra mods <<< "$NATIVE_MODS"
+          read -ra entries <<< "$NATIVE_MODS"
+          mods=()
+          for entry in "${entries[@]}"; do
+            case "$entry" in
+              https://*) mods+=("$entry") ;;
+              *)
+                # A file the app uploaded to this repository's native-mods branch.
+                if [[ ! "$entry" =~ ^native-mods/[a-z0-9_]{1,64}\.hnmod$ ]]; then
+                  echo "Refusing native mod path $entry"; exit 1
+                fi
+                if [[ ! -d .local/native-inputs ]]; then
+                  mkdir -p .local/native-inputs
+                  auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)
+                  git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+                    fetch --depth=1 origin native-mods
+                fi
+                git show "FETCH_HEAD:$entry" > ".local/native-inputs/${entry#native-mods/}"
+                mods+=(".local/native-inputs/${entry#native-mods/}") ;;
+            esac
+          done
           python3 tools/android_native_mods.py stage --in-place --trust-native-code \
             --allow-version-mismatch --github-env "$GITHUB_ENV" "${mods[@]}"
       - name: Build optimized public dev APK

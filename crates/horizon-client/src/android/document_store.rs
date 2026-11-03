@@ -91,6 +91,7 @@ fn resolve(home: &Path, id: &str) -> io::Result<Document> {
         let (folder, label) = match parts.next() {
             Some("mods") => ("horizon-mods", "Mods"),
             Some("native-mods") => ("horizon-native-mods", "Native Mods"),
+            Some("builds") => ("horizon-builds", "APK builds"),
             Some("packs") => ("resourcepacks", "Resource Packs"),
             Some("shaders") => ("shaderpacks", "Shader Packs"),
             Some("worlds") => ("saves", "Worlds"),
@@ -203,6 +204,7 @@ pub fn children(home: &Path, id: &str) -> io::Result<Vec<Value>> {
             "worlds",
             "configuration",
             "reports",
+            "builds",
         ]
         .iter()
         .map(|folder| row(home, &folder_id(profile(home), folder)))
@@ -400,7 +402,8 @@ mod tests {
         ));
         fs::create_dir_all(&home).unwrap();
         let roots = children(&home, ROOT).unwrap();
-        assert_eq!(roots.len(), 7);
+        assert_eq!(roots.len(), 8);
+        assert_eq!(roots[7]["document_id"], "p0/builds");
         assert_eq!(roots[0]["document_id"], "p0/mods");
         assert_eq!(roots[1]["document_id"], "p0/native-mods");
         assert_eq!(roots[1]["_display_name"], "Native Mods");

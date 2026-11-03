@@ -276,6 +276,23 @@ impl Chooser {
             scroll: 0.0,
         }
     }
+    pub(super) fn confirm_build(count: usize, repo: String) -> Self {
+        Self {
+            title: "Build native mods?",
+            help: "Native mods are code with this app's rights. They are uploaded to your fork and compiled by its GitHub Actions with your token. Build only mods you trust.",
+            device: Some(format!("{count} native mod(s) on {repo}")),
+            choices: vec![
+                (
+                    "Build APK".into(),
+                    String::new(),
+                    Action::ConfirmBuildNative,
+                    false,
+                ),
+                ("Cancel".into(), String::new(), Action::Dismiss, true),
+            ],
+            scroll: 0.0,
+        }
+    }
     pub(super) fn navigation(&self, width: f32) -> Vec<([f32; 4], Action)> {
         self.choices
             .iter()

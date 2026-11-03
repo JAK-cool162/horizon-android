@@ -341,6 +341,54 @@ pub fn open_documents(id: &str) -> bool {
     })
     .is_some()
 }
+/// Opens Android's package installer on an APK the Files provider serves (`document`, a
+/// document id such as `p0/builds/x.apk`), with read access to that one document.
+pub fn install_package(document: &str) -> bool {
+    with_context(|env, activity| {
+        let package = env
+            .call_method(activity, "getPackageName", "()Ljava/lang/String;", &[])?
+            .l()?;
+        let package: String = env.get_string((&package).into())?.into();
+        let authority = JObject::from(env.new_string(format!("{package}.documents"))?);
+        let document = JObject::from(env.new_string(document)?);
+        let uri = env
+            .call_static_method(
+                "android/provider/DocumentsContract",
+                "buildDocumentUri",
+                "(Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&authority), JValue::Object(&document)],
+            )?
+            .l()?;
+        let action = JObject::from(env.new_string("android.intent.action.VIEW")?);
+        let intent = env.new_object(
+            "android/content/Intent",
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&action)],
+        )?;
+        let mime = JObject::from(env.new_string("application/vnd.android.package-archive")?);
+        env.call_method(
+            &intent,
+            "setDataAndType",
+            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;",
+            &[JValue::Object(&uri), JValue::Object(&mime)],
+        )?;
+        // FLAG_GRANT_READ_URI_PERMISSION
+        env.call_method(
+            &intent,
+            "addFlags",
+            "(I)Landroid/content/Intent;",
+            &[JValue::Int(1)],
+        )?;
+        env.call_method(
+            activity,
+            "startActivity",
+            "(Landroid/content/Intent;)V",
+            &[JValue::Object(&intent)],
+        )?;
+        Ok(())
+    })
+    .is_some()
+}
 pub fn open_url(url: &str) -> bool {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return false;

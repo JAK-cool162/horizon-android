@@ -65,6 +65,10 @@ pub(super) enum Action {
     ChooseWorkerLimit(u32),
     PerformanceHints,
     GpuProfile,
+    BuildNative,
+    ConfirmBuildNative,
+    InstallNative,
+    OpenNativeRun,
 }
 
 pub(super) fn button(
@@ -92,6 +96,7 @@ pub(super) fn button(
             | Action::InputHost
             | Action::Aspect
             | Action::DisplayHz
+            | Action::GpuProfile
             | Action::RecordPerformance
             | Action::ExportDiagnostics
             | Action::ExportPerformance
@@ -867,7 +872,8 @@ impl Launcher {
                 .enumerate()
                 .map(|(i, k)| {
                     48.0 + if self.catalog.sections[i] {
-                        self.catalog.local.iter().filter(|e| e.kind == *k).count() as f32
+                        (self.catalog.local.iter().filter(|e| e.kind == *k).count()
+                            + usize::from(*k == Kind::NativeMods)) as f32
                             * row_height
                     } else {
                         0.0
@@ -915,6 +921,113 @@ impl Launcher {
                 offset += 48.0;
                 if !self.catalog.sections[section] {
                     continue;
+                }
+                if kind == Kind::NativeMods {
+                    use crate::native_build::Phase;
+                    let y = top + offset - self.catalog.scroll;
+                    offset += row_height;
+                    let phase = self.catalog.native_build.phase();
+                    let running = self.catalog.native_build.running();
+                    let (main, other) = match &phase {
+                        _ if running => (
+                            self.catalog
+                                .native_build
+                                .url()
+                                .map(|_| ("View", Action::OpenNativeRun)),
+                            None,
+                        ),
+                        Phase::Ready => (
+                            Some(("Install", Action::InstallNative)),
+                            Some(("Build again", Action::BuildNative)),
+                        ),
+                        _ => (Some(("Build APK", Action::BuildNative)), None),
+                    };
+                    let button_y = y + if compact { 55.0 } else { 0.0 };
+                    if let Some((_, action)) = main {
+                        self.list_targets
+                            .push(([w - 165.0, button_y, 133.0, 40.0], action));
+                    }
+                    if let Some((_, action)) = other {
+                        self.list_targets.push((
+                            [
+                                if compact { 32.0 } else { w - 300.0 },
+                                button_y,
+                                120.0,
+                                40.0,
+                            ],
+                            action,
+                        ));
+                    }
+                    if y >= top && y + row_height - 4.0 <= bottom {
+                        style::card(
+                            &mut ui,
+                            [16.0, y - 6.0, w - 32.0, row_height - 8.0],
+                            color::ACCENT_CONTAINER,
+                        );
+                        let title = ui.fit_text(
+                            Face::Medium,
+                            19.0,
+                            "Build an APK with these mods",
+                            if compact { w - 64.0 } else { w - 364.0 },
+                        );
+                        ui.text(
+                            Face::Medium,
+                            19.0,
+                            32.0,
+                            y,
+                            color::ON_ACCENT_CONTAINER,
+                            &title,
+                        );
+                        let detail = match &phase {
+                            Phase::Idle => {
+                                "On your GitHub fork: the phone cannot compile Rust".to_owned()
+                            }
+                            Phase::Working(text) => text.clone(),
+                            Phase::Ready => {
+                                "Ready: install it (it installs as Horizon Android dev)".into()
+                            }
+                            Phase::Failed(error) => error.clone(),
+                        };
+                        let detail = ui.fit_text(
+                            Face::Regular,
+                            14.0,
+                            &detail,
+                            if compact { w - 64.0 } else { w - 364.0 },
+                        );
+                        ui.text(
+                            Face::Regular,
+                            14.0,
+                            32.0,
+                            y + 28.0,
+                            color::ON_ACCENT_CONTAINER,
+                            &detail,
+                        );
+                        if let Some((label, action)) = main {
+                            button(
+                                &mut ui,
+                                &mut self.targets,
+                                [w - 165.0, button_y, 133.0, 40.0],
+                                label,
+                                action,
+                                !running,
+                            );
+                        }
+                        if let Some((label, action)) = other {
+                            button(
+                                &mut ui,
+                                &mut self.targets,
+                                [
+                                    if compact { 32.0 } else { w - 300.0 },
+                                    button_y,
+                                    120.0,
+                                    40.0,
+                                ],
+                                label,
+                                action,
+                                false,
+                            );
+                        }
+                    }
                 }
                 for (i, item) in self
                     .catalog
@@ -1029,11 +1142,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (21.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (21.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -1149,6 +1262,28 @@ impl Launcher {
                         c.server.clone()
                     },
                     Action::Field("server"),
+                ),
+                (
+                    "GitHub repository",
+                    if !c.github_repo.is_empty() {
+                        c.github_repo.clone()
+                    } else if let Some(repo) = crate::native_build::repository("") {
+                        format!("{repo} (this APK's)")
+                    } else {
+                        "Your fork, for native mod builds".into()
+                    },
+                    Action::Field("github_repo"),
+                ),
+                (
+                    "GitHub token",
+                    if self.catalog.editing == Some("github_token") {
+                        "*".repeat(self.catalog.github_token_text.chars().count())
+                    } else if self.catalog.github_token_saved {
+                        "Saved / tap to replace (empty removes it)".into()
+                    } else {
+                        "Not set / fine-grained, Contents + Actions".into()
+                    },
+                    Action::Field("github_token"),
                 ),
             ]
             .into_iter()
@@ -1337,6 +1472,8 @@ impl Launcher {
                 "name" => self.catalog.config.name.clone(),
                 "server" => self.catalog.config.server.clone(),
                 "render_scale" => self.catalog.render_scale_text.clone(),
+                "github_repo" => self.catalog.config.github_repo.clone(),
+                "github_token" => "*".repeat(self.catalog.github_token_text.chars().count()),
                 _ => format!("Search: {}", self.catalog.query),
             };
             for ([x, y, w, _], action) in &self.targets {
@@ -1635,6 +1772,33 @@ impl Launcher {
                     self.chooser = Some(super::chooser::Chooser::confirm_delete(item.file.clone()));
                 }
             }
+            Some(Action::BuildNative) => match self.catalog.native_build_inputs(&self.home) {
+                Ok((repo, _, mods)) => {
+                    self.chooser = Some(super::chooser::Chooser::confirm_build(mods.len(), repo));
+                }
+                Err(e) => self.catalog.status = e,
+            },
+            Some(Action::ConfirmBuildNative) => {
+                self.chooser = None;
+                self.catalog.build_native(&self.home);
+            }
+            Some(Action::InstallNative) => {
+                let id = format!(
+                    "{}/{}",
+                    crate::document_store::folder_id(self.catalog.config.profile, "builds"),
+                    crate::native_build::APK_FILE
+                );
+                self.catalog.status = if crate::platform::install_package(&id) {
+                    "Android's installer opened. Allow Horizon to install apps if it asks.".into()
+                } else {
+                    "Could not open the installer: install the APK from Files > APK builds".into()
+                };
+            }
+            Some(Action::OpenNativeRun) => {
+                if let Some(url) = self.catalog.native_build.url() {
+                    crate::platform::open_url(&url);
+                }
+            }
             Some(Action::ConfirmDeleteLocal) => {
                 self.catalog.remove_local(&self.home);
                 self.chooser = None;
@@ -1712,6 +1876,11 @@ impl Launcher {
                     "server" => &self.catalog.config.server,
                     "render_scale" => &self.catalog.render_scale_text,
                     "client_id" => &self.catalog.config.microsoft_client_id,
+                    "github_repo" => &self.catalog.config.github_repo,
+                    "github_token" => {
+                        self.catalog.github_token_text.clear();
+                        &self.catalog.github_token_text
+                    }
                     _ => &self.catalog.query,
                 };
                 crate::platform::show(initial);

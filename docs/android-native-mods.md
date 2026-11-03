@@ -28,6 +28,33 @@ and run without a rebuild.
 - **Files.** Android Files shows the profile's **Native Mods** folder
   (`horizon-native-mods/`) next to Mods, Resource Packs and Shader Packs.
 
+## Building from the app
+
+A phone cannot compile Rust, but your GitHub fork can. Installed > Native Mods starts with
+**Build an APK with these mods**: **Build APK** uploads every native mod this APK can hold
+(not the bundled copies or incompatible ones) to your fork's `native-mods` branch, starts the
+**Android dev APKs** workflow with them, follows it, downloads the APK for this phone's ABI
+into the profile's **APK builds** folder and opens Android's installer (**Install**). A build
+takes about 40-70 minutes; **View** opens it on GitHub, and you can close Horizon meanwhile:
+it picks the build up again when it opens.
+
+Once, in your fork:
+
+1. **Signing key.** Add the `ANDROID_DEV_KEYSTORE_BASE64` secret
+   ([dev builds](android-dev-builds.md)); every build is signed with it, so each one updates
+   the last. Without it the workflow stops at its first step.
+2. **Token.** GitHub > Settings > Developer settings > Fine-grained tokens: only your fork,
+   with **Contents** and **Actions** read and write. Paste it in Setup > **GitHub token**;
+   it is kept encrypted with the Android Keystore and sent only to GitHub. An empty entry
+   removes it.
+3. **Repository.** Setup > **GitHub repository**: your fork as `owner/name`. An APK built by
+   your fork's workflow already knows it.
+
+The APK is a dev build (`dev.horizon.android.dev`): it installs beside a stable Horizon
+Android, with its own worlds, and each later dev build updates it. Android asks once to let
+Horizon install apps. The confirmation before a build says the mods are code with the app's
+rights: build only mods you trust.
+
 ## Making your own mod
 
 ```sh
