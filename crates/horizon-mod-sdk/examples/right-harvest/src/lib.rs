@@ -48,7 +48,10 @@ impl ServerMod for RightHarvest {
         state: &str,
         _item: Option<&str>,
     ) {
-        let Some(young) = replanted(state) else {
+        // `state` is the block when it was clicked; the game, another mod or a player may have
+        // changed it since (the event arrives a tick later), so act on what is there now.
+        let now = world::get_block(dimension, pos.x, pos.y, pos.z);
+        let Some(young) = replanted(now.as_deref().unwrap_or(state)) else {
             return;
         };
         // In this order: the ripe crop drops its loot, then the seedling takes its place.

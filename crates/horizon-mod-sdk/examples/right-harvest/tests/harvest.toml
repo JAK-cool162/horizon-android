@@ -27,3 +27,11 @@ blocks = [{ x = 4, y = 64, z = 1, state = "minecraft:stone" }]
 use = { x = 4, y = 64, z = 1, state = "minecraft:stone" }
 expect.drops = []
 expect.blocks = [{ x = 4, y = 64, z = 1, state = "minecraft:stone" }]
+
+# Clicked ripe, but already harvested (by the game's own RightHarvest or another player)
+# when the event arrives: the seedling is left alone, no extra loot.
+[[step]]
+blocks = [{ x = 5, y = 64, z = 1, state = "minecraft:potatoes[age=0]" }]
+use = { x = 5, y = 64, z = 1, state = "minecraft:potatoes[age=7]" }
+expect.drops = []
+expect.blocks = [{ x = 5, y = 64, z = 1, state = "minecraft:potatoes[age=0]" }]
