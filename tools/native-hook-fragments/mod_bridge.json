@@ -1,0 +1,15 @@
+{
+  "hooks": [
+    {
+      "name": "bridge_apis",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_bridge_apis"
+    },
+    {
+      "name": "bridge_call",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_bridge_call"
+    }
+  ],
+  "rust_summary": "the mod bridge: APIs of a native mod's own for sandboxed mods with capability `bridge`\n(`native_bridge_apis`, `native_bridge_call`, and the helpers `native_bridge_publish` and\n`native_bridge_event` in `native_bridge.rs`).",
+  "doc_summary": "the mod bridge: a native mod serves an API of its own to sandboxed `.hmod` mods with capability `bridge` (API level 9), so a new API needs no change to the mods' WIT contract. `native_bridge_apis(apis)` lists `(name, version)`; `native_bridge_call(call, reply)` answers a mod's `bridge.call` before the next tick's mod hooks, where server helpers such as `native_run_command` work; `native_bridge_publish(api, key, value)` sets what `bridge.get` reads and `native_bridge_event(api, name, data)` tells every such mod. Bundles need \"hooks\": @API:mod_bridge@.",
+  "comments": ["crates/horizon-client/src/game/native_bridge.rs"]
+}

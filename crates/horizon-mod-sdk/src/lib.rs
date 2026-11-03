@@ -37,6 +37,24 @@ wit_bindgen::generate!({
     default_bindings_module: "horizon_mod_sdk",
 });
 
+/// Capability `bridge` (experimental, API level 9), for client and server
+/// mods alike: one world both export macros add to the component.
+#[doc(hidden)]
+pub mod bridge_sdk {
+    wit_bindgen::generate!({
+        path: "wit",
+        world: "bridge-host",
+        pub_export_macro: true,
+        export_macro_name: "__export_bridge",
+        default_bindings_module: "horizon_mod_sdk::bridge_sdk",
+    });
+}
+#[doc(hidden)]
+pub use bridge_sdk::exports::horizon::mods::bridge_events::Guest as __BridgeGuest;
+/// Capability `bridge`: the APIs native mods (`.hnmod`) add, by name.
+/// [`bridge::call`] is answered through [`Mod::bridge_reply`] (a server mod's
+/// [`ServerMod::bridge_reply`](server::ServerMod::bridge_reply)) at the next tick.
+pub use bridge_sdk::horizon::mods::bridge;
 pub use exports::horizon::mods::events::{Guest as __Guest, Registration};
 pub use exports::horizon::mods::ui_events::Guest as __UiEventsGuest;
 pub use horizon::mods::{
@@ -68,6 +86,12 @@ pub trait Mod: Sized + 'static {
     /// The player opened the mod's settings page (capability `ui`): call
     /// [`ui::set_settings`] for fresh widgets.
     fn ui_settings_opened(&mut self) {}
+    /// The answer to the [`bridge::call`] that returned `id` (capability
+    /// `bridge`): what the native API answered, or why it could not.
+    fn bridge_reply(&mut self, _id: u64, _api: &str, _function: &str, _answer: Result<&str, &str>) {
+    }
+    /// An event a native API sent to every mod with capability `bridge`.
+    fn bridge_event(&mut self, _api: &str, _name: &str, _data: &str) {}
 }
 
 impl Registration {
@@ -152,6 +176,22 @@ macro_rules! export_mod {
                     with(|m| $crate::Mod::chat(m, &text))
                 }
             }
+            impl $crate::__BridgeGuest for Export {
+                fn reply(id: u64, api: String, function: String, answer: Result<String, String>) {
+                    with(|m| {
+                        $crate::Mod::bridge_reply(
+                            m,
+                            id,
+                            &api,
+                            &function,
+                            answer.as_deref().map_err(String::as_str),
+                        )
+                    })
+                }
+                fn event(api: String, name: String, data: String) {
+                    with(|m| $crate::Mod::bridge_event(m, &api, &name, &data))
+                }
+            }
             impl $crate::__UiEventsGuest for Export {
                 fn select(id: u32, row: u32) {
                     with(|m| $crate::Mod::ui_select(m, id, row))
@@ -168,6 +208,8 @@ macro_rules! export_mod {
             // couldn't link (its exported-symbols list cuts names at the `#`).
             #[cfg(target_arch = "wasm32")]
             $crate::__export_horizon_mod!(Export);
+            #[cfg(target_arch = "wasm32")]
+            $crate::bridge_sdk::__export_bridge!(Export);
             #[cfg(not(target_arch = "wasm32"))]
             let _ = (
                 <Export as $crate::__Guest>::init,
@@ -194,6 +236,7 @@ pub mod server {
         },
     });
 
+    pub use crate::bridge;
     pub use exports::horizon::mods::server_events::{
         Argument, ArgumentKind, ArgumentValue, BlockPos, Guest as __Guest, Registration,
         ServerCommand,
@@ -241,6 +284,18 @@ pub mod server {
             _item: Option<&str>,
         ) {
         }
+        /// The answer to the [`bridge::call`](crate::bridge::call) that returned `id` (capability
+        /// `bridge`): what the native API answered, or why it could not.
+        fn bridge_reply(
+            &mut self,
+            _id: u64,
+            _api: &str,
+            _function: &str,
+            _answer: Result<&str, &str>,
+        ) {
+        }
+        /// An event a native API sent to every mod with capability `bridge`.
+        fn bridge_event(&mut self, _api: &str, _name: &str, _data: &str) {}
     }
 
     impl Registration {
@@ -451,6 +506,22 @@ macro_rules! export_server_mod {
                     with(|m| m.block_placed(&player, pos, &state))
                 }
             }
+            impl $crate::__BridgeGuest for Export {
+                fn reply(id: u64, api: String, function: String, answer: Result<String, String>) {
+                    with(|m| {
+                        ServerMod::bridge_reply(
+                            m,
+                            id,
+                            &api,
+                            &function,
+                            answer.as_deref().map_err(String::as_str),
+                        )
+                    })
+                }
+                fn event(api: String, name: String, data: String) {
+                    with(|m| ServerMod::bridge_event(m, &api, &name, &data))
+                }
+            }
             impl $crate::server::__UseGuest for Export {
                 fn block_used(
                     player: String,
@@ -474,6 +545,8 @@ macro_rules! export_server_mod {
             }
             #[cfg(target_arch = "wasm32")]
             $crate::server::__export_horizon_server_mod!(Export);
+            #[cfg(target_arch = "wasm32")]
+            $crate::bridge_sdk::__export_bridge!(Export);
             #[cfg(not(target_arch = "wasm32"))]
             let _ = <Export as $crate::server::__Guest>::init;
         };

@@ -103,9 +103,12 @@ pub enum Capability {
     /// The recipes and items the game knows, for recipe viewers
     /// (interface `recipes`).
     Recipes,
+    /// The APIs native mods (`.hnmod`) add to the game, by name (interface
+    /// `bridge`, API level 9): client and server mods.
+    Bridge,
 }
 impl Capability {
-    pub const ALL: [Capability; 12] = [
+    pub const ALL: [Capability; 13] = [
         Capability::GameRead,
         Capability::Chat,
         Capability::Hud,
@@ -118,12 +121,13 @@ impl Capability {
         Capability::Players,
         Capability::World,
         Capability::Recipes,
+        Capability::Bridge,
     ];
     /// Whether a server mod may have it: the others act on a local player.
     pub fn on_server(self) -> bool {
         matches!(
             self,
-            Capability::Storage | Capability::Players | Capability::World
+            Capability::Storage | Capability::Players | Capability::World | Capability::Bridge
         )
     }
     /// The WIT interface it grants, in `horizon:mods`.
@@ -141,6 +145,7 @@ impl Capability {
             Capability::Players => "players",
             Capability::World => "world",
             Capability::Recipes => "recipes",
+            Capability::Bridge => "bridge",
         }
     }
     /// May change in any release: a mod uses it only with
@@ -148,7 +153,11 @@ impl Capability {
     pub fn is_experimental(self) -> bool {
         matches!(
             self,
-            Capability::Ui | Capability::Render | Capability::Input | Capability::Recipes
+            Capability::Ui
+                | Capability::Render
+                | Capability::Input
+                | Capability::Recipes
+                | Capability::Bridge
         )
     }
     /// What the player reads before turning the mod on: "May <this>".
@@ -171,6 +180,9 @@ impl Capability {
             Capability::World => "read and change the world's blocks",
             Capability::Recipes => {
                 "read the game's recipes and items and which recipes you know, place recipes in your crafting grid and, in creative mode, give you items"
+            }
+            Capability::Bridge => {
+                "use the APIs your native mods (.hnmod) add to the game, which can do whatever those mods allow"
             }
         }
     }
@@ -213,6 +225,7 @@ impl fmt::Display for Capability {
             Capability::Players => "players",
             Capability::World => "world",
             Capability::Recipes => "recipes",
+            Capability::Bridge => "bridge",
         };
         f.write_str(name)
     }

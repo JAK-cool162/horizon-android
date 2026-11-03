@@ -49,6 +49,8 @@ fn mods_dir() -> &'static Path {
                 "-p",
                 "beacons",
                 "-p",
+                "welcome-kit",
+                "-p",
                 "horizon-mods-test-guest",
                 "-p",
                 "horizon-mods-test-ui-guest",
@@ -73,6 +75,7 @@ fn mods_dir() -> &'static Path {
             ("predator_missile", example("predator-missile")),
             ("welcome", example("welcome")),
             ("beacons", example("beacons")),
+            ("welcome_kit", example("welcome-kit")),
             ("horizon_mods_test_guest", GUEST_MANIFEST.to_string()),
             ("horizon_mods_test_ui_guest", UI_MANIFEST.to_string()),
         ];
@@ -258,6 +261,36 @@ experimental = ["ui", "render", "input", "recipes"]
     // The UI guest draws far terrain (`render.set-far-terrain`, level 7); level 8 added
     // `world.break-blocks`, which only server mods import.
     assert_eq!(level("horizon_mods_test_ui_guest.hmod"), 7);
+}
+
+/// Capability `bridge` is the gate to whatever the native mods serve: a mod
+/// calling it without the capability is refused, and one with it is level 9.
+#[test]
+fn the_bridge_needs_its_capability() {
+    use horizon_mods::api_level::{imports, needed};
+    let kit = mods_dir().join("welcome_kit.hmod");
+    let wasm = Package::read(&kit).unwrap().wasm.expect("the kit has code");
+    assert_eq!(
+        needed(imports(&wasm).unwrap().iter().map(String::as_str)).0,
+        9
+    );
+    let dir = mods_dir().join("bridge_undeclared");
+    std::fs::create_dir_all(&dir).unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest = std::fs::read_to_string(
+        root.join("crates/horizon-mod-sdk/examples/welcome-kit/horizon-mod.toml"),
+    )
+    .unwrap()
+    .replace(", \"bridge\"]", "]")
+    .replace("experimental = [\"bridge\"]\n", "");
+    std::fs::write(dir.join("horizon-mod.toml"), manifest).unwrap();
+    std::fs::write(dir.join("mod.wasm"), wasm).unwrap();
+    let mods = Mods::load(&[dir], |_| true, |_| false);
+    let refused = Status::Failed("uses capability bridge, missing from horizon-mod.toml".into());
+    assert_eq!(mods.entries()[0].status, refused);
+    // Declared, it runs.
+    let mods = Mods::load(&[kit], |_| true, |_| false);
+    assert_eq!(mods.entries()[0].status, Status::Running);
 }
 
 #[test]

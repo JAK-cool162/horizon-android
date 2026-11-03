@@ -75,6 +75,15 @@ mod use_bindings {
     });
 }
 use use_bindings::UseHost;
+/// Capability `bridge` (API level 9): the APIs native mods serve. A world of
+/// its own, so mods built before it (no `bridge-events` export) still load.
+mod bridge_bindings {
+    wasmtime::component::bindgen!({
+        path: "../horizon-mod-sdk/wit",
+        world: "bridge-host",
+    });
+}
+use bridge_bindings::{BridgeHost, horizon::mods::bridge};
 /// Capability `render`'s imports (docs/mods.md): the game draws the shapes.
 mod render_bindings {
     wasmtime::component::bindgen!({
@@ -128,6 +137,15 @@ const CHAT_PER_CALL: usize = 8;
 const QUIET_PER_CALL: usize = 256;
 /// How far `game.raycast` sees, in blocks.
 pub const RAYCAST_MAX: f32 = 1024.0;
+/// `bridge.call`: the longest API and function name, the largest arguments,
+/// and the calls one hook call may queue.
+pub const BRIDGE_NAME: usize = 64;
+pub const BRIDGE_ARGS: usize = 64 << 10;
+pub const BRIDGE_CALLS: u32 = 64;
+/// The answer to a `bridge.call` of an API no native mod in this game serves.
+pub fn bridge_unserved(api: &str) -> String {
+    format!("no native mod serves the API {api}: install the .hnmod that adds it")
+}
 const HUD_LINES: usize = 16;
 const LINE_CHARS: usize = 256;
 /// Total bytes a mod's `storage` may hold on disk, across all its keys.
@@ -264,7 +282,27 @@ pub enum Output {
         count: u32,
         components: String,
     },
+    /// `bridge.call`: a call to an API a native mod serves, for the game to
+    /// answer with [`Mods::bridge_reply`] (`id` is what the mod got back).
+    BridgeCall {
+        mod_id: String,
+        /// The mod is a server mod.
+        server: bool,
+        id: u64,
+        api: String,
+        function: String,
+        args: String,
+    },
 }
+
+/// What native mods serve to capability `bridge`: their APIs' versions and
+/// the values they published, by API and key.
+#[derive(Default)]
+struct BridgeTable {
+    apis: std::collections::BTreeMap<String, u32>,
+    values: std::collections::BTreeMap<(String, String), String>,
+}
+type BridgeSlot = Arc<Mutex<BridgeTable>>;
 
 /// The game's world as capability `world` reads it during a call: the
 /// game lends one with [`Mods::lend_world`] and takes it back after.
@@ -332,6 +370,8 @@ struct Running {
     ui: Option<UiHost>,
     /// A server mod's `use-events`, when it was built with them.
     uses: Option<UseHost>,
+    /// The mod's `bridge-events`, when it was built with them.
+    bridge: Option<BridgeHost>,
     hooks: Hooks,
     /// It imports `game.raycast`.
     raycasts: bool,
@@ -446,6 +486,13 @@ struct State {
     storage_budget: u64,
     limits: StoreLimits,
     world: WorldSlot,
+    /// Capability `bridge`: what native mods serve, shared by every mod's store.
+    bridge: BridgeSlot,
+    /// `bridge.call`s this hook call made, and the last id given.
+    bridge_calls: u32,
+    last_call: u64,
+    /// A server mod (for [`Output::BridgeCall`]).
+    server: bool,
 }
 
 /// The installed mods and the engine running them. `Mods::default()` is
@@ -457,6 +504,7 @@ pub struct Mods {
     snapshot: Arc<Snapshot>,
     out: Vec<Output>,
     world: WorldSlot,
+    bridge: BridgeSlot,
     /// Moves on whenever a mod starts or stops: the game resends the server
     /// mods' commands to players when it changes.
     generation: u64,
@@ -567,6 +615,8 @@ impl Mods {
                 .map_err(|e| e.to_string())?;
             RecipesHost::add_to_linker::<State, HasSelf<State>>(&mut linker, |s| s)
                 .map_err(|e| e.to_string())?;
+            BridgeHost::add_to_linker::<State, HasSelf<State>>(&mut linker, |s| s)
+                .map_err(|e| e.to_string())?;
             self.engine = Some((engine, linker));
         }
         Ok(self.engine.as_ref().expect("made above"))
@@ -606,6 +656,7 @@ impl Mods {
             .collect();
         let snapshot = self.snapshot.clone();
         let world = self.world.clone();
+        let bridge = self.bridge.clone();
         let (engine, linker) = self.engine()?;
         let component =
             Component::new(engine, wasm).map_err(|e| format!("not a component: {e}"))?;
@@ -647,6 +698,10 @@ impl Mods {
                 .instances(16)
                 .build(),
             world,
+            bridge,
+            bridge_calls: 0,
+            last_call: 0,
+            server,
         };
         let mut store = Store::new(engine, state);
         store.limiter(|s| &mut s.limits);
@@ -654,6 +709,8 @@ impl Mods {
         let instance = linker
             .instantiate(&mut store, &component)
             .map_err(|e| reason(&e))?;
+        // Every mod built since `bridge`'s SDK has the export; older ones hear no replies.
+        let bridge = BridgeHost::new(&mut store, &instance).ok();
         let (mut hooks, ui, uses) = if server {
             let exports = HorizonServerMod::new(&mut store, &instance).map_err(|e| reason(&e))?;
             let uses = UseHost::new(&mut store, &instance).ok();
@@ -702,6 +759,7 @@ impl Mods {
             store,
             ui,
             uses,
+            bridge,
             hooks,
             raycasts: functions.iter().any(|f| f == "game.raycast"),
             reads_recipes: functions.iter().any(|f| f.starts_with("recipes.")),
@@ -787,6 +845,7 @@ impl Mods {
         let run = entry.run.as_mut()?;
         run.store.data_mut().snapshot = self.snapshot.clone();
         run.store.data_mut().storage_budget = STORAGE_WRITE_BUDGET;
+        run.store.data_mut().bridge_calls = 0;
         let started = Instant::now();
         let result = run.store.set_fuel(fuel).and_then(|()| f(run));
         // An average over about the last 64 calls.
@@ -936,6 +995,72 @@ impl Mods {
                 None => Ok(()),
             },
         );
+    }
+
+    /// Whether a running mod has capability `bridge`: only then is there
+    /// anything to serve or tell.
+    pub fn wants_bridge(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.run.is_some()
+                && e.manifest
+                    .as_ref()
+                    .is_some_and(|m| m.capabilities.contains(&crate::Capability::Bridge))
+        })
+    }
+    /// What native mods serve from now on: their APIs' versions
+    /// (`bridge.version`) and the values they published (`bridge.get`), by
+    /// API and key.
+    pub fn set_bridge(
+        &mut self,
+        apis: std::collections::BTreeMap<String, u32>,
+        values: std::collections::BTreeMap<(String, String), String>,
+    ) {
+        if let Ok(mut table) = self.bridge.lock() {
+            *table = BridgeTable { apis, values };
+        }
+    }
+    /// The answer to [`Output::BridgeCall`] `id` of the running mod `mod_id`.
+    pub fn bridge_reply(
+        &mut self,
+        mod_id: &str,
+        id: u64,
+        api: &str,
+        function: &str,
+        result: Result<&str, &str>,
+    ) {
+        let Some(i) = self.entries.iter().position(|e| {
+            e.run.as_ref().is_some_and(|r| r.bridge.is_some())
+                && e.manifest.as_ref().is_some_and(|m| m.id == mod_id)
+        }) else {
+            return;
+        };
+        self.call(i, FUEL_EVENT, |run| match &run.bridge {
+            Some(b) => {
+                b.horizon_mods_bridge_events()
+                    .call_reply(&mut run.store, id, api, function, result)
+            }
+            None => Ok(()),
+        });
+    }
+    /// An event of the native API `api`, to every running mod with
+    /// capability `bridge`.
+    pub fn bridge_event(&mut self, api: &str, name: &str, data: &str) {
+        for i in 0..self.entries.len() {
+            let e = &self.entries[i];
+            let listens = e.run.as_ref().is_some_and(|r| r.bridge.is_some())
+                && e.manifest
+                    .as_ref()
+                    .is_some_and(|m| m.capabilities.contains(&crate::Capability::Bridge));
+            if listens {
+                self.call(i, FUEL_EVENT, |run| match &run.bridge {
+                    Some(b) => {
+                        b.horizon_mods_bridge_events()
+                            .call_event(&mut run.store, api, name, data)
+                    }
+                    None => Ok(()),
+                });
+            }
+        }
     }
     /// `player` placed `state` at `pos`.
     pub fn block_placed(&mut self, player: &ServerPlayer, pos: BlockPos, state: &str) {
@@ -1436,6 +1561,42 @@ fn clip_widgets(widgets: Vec<UiWidget>) -> Vec<UiWidget> {
             }
         })
         .collect()
+}
+
+impl bridge::Host for State {
+    fn version(&mut self, api: String) -> Option<u32> {
+        self.bridge.lock().ok()?.apis.get(&api).copied()
+    }
+    fn get(&mut self, api: String, key: String) -> Option<String> {
+        self.bridge.lock().ok()?.values.get(&(api, key)).cloned()
+    }
+    fn call(&mut self, api: String, function: String, args: String) -> Result<u64, String> {
+        if api.len() > BRIDGE_NAME || function.len() > BRIDGE_NAME {
+            return Err(format!(
+                "API and function names are at most {BRIDGE_NAME} bytes"
+            ));
+        }
+        if args.len() > BRIDGE_ARGS {
+            return Err(format!(
+                "arguments of {} bytes: at most {BRIDGE_ARGS}",
+                args.len()
+            ));
+        }
+        if self.bridge_calls >= BRIDGE_CALLS {
+            return Err(format!("at most {BRIDGE_CALLS} bridge calls per hook call"));
+        }
+        self.bridge_calls += 1;
+        self.last_call += 1;
+        self.out.push(Output::BridgeCall {
+            mod_id: self.id.clone(),
+            server: self.server,
+            id: self.last_call,
+            api,
+            function,
+            args,
+        });
+        Ok(self.last_call)
+    }
 }
 
 impl mod_log::Host for State {

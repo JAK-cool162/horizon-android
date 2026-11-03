@@ -272,6 +272,7 @@
 //! that would break such a bundle is not made.
 //! Bodies have no `cfg` and no macros: horizon-mixins refuses a target with
 //! either (`tests::hook_points_stay_hookable`).
+pub(crate) use super::native_bridge::NativeBridgeCall;
 use super::native_lifecycle::{NativeLifecycleContext, ServerTickPhase, WorldPhase};
 use super::{
     Game, GameLevel, LevelDimension, Screen,
@@ -1203,6 +1204,29 @@ impl Game<'_> {
     /// fails stops without this (`WorldCloseFailed` reports it). API 44.
     pub(super) fn native_server_stopping(&mut self, dedicated: bool) {
         let _ = dedicated;
+    }
+    /// The mod bridge (capability `bridge`): the APIs native mods serve to
+    /// sandboxed mods, as `(name, version)`. Asked before each tick's mod hooks
+    /// while a mod with the capability runs, in the window (client mods) and
+    /// where the world is simulated (server mods). A name is what mods call
+    /// (`extras`); raise the version when a function changes. Publish values
+    /// with `native_bridge_publish` and send events with `native_bridge_event`.
+    /// API @API:mod_bridge@.
+    pub(super) fn native_bridge_apis(&self, apis: &mut Vec<(String, u32)>) {
+        let _ = apis;
+    }
+    /// A sandboxed mod's `bridge.call`, answered before the next tick's mod
+    /// hooks: no player's state is swapped in there, so on a server
+    /// `native_run_command` and the other server helpers work. The native mod
+    /// serving `call.api` sets `reply` (`Ok` with its answer, `Err` with why);
+    /// left `None`, the mod hears that no native mod serves the API. Check
+    /// `call.server` for where it runs. API @API:mod_bridge@.
+    pub(super) fn native_bridge_call(
+        &mut self,
+        call: &NativeBridgeCall<'_>,
+        reply: &mut Option<Result<String, String>>,
+    ) {
+        let _ = (call, reply);
     }
     /// The authoritative server tick's phases: `ServerTickStart` before any
     /// level is ticked (NeoForge's `ServerTickEvent.Pre`), `ServerTickEnd`

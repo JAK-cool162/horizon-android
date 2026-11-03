@@ -274,6 +274,7 @@ mod run {
             let snapshot = self.mod_snapshot_with(players.clone());
             self.mods.mods.set_snapshot(snapshot);
             self.lend_world();
+            self.serve_bridge();
             let before = std::mem::take(&mut self.mods.players);
             for p in before
                 .iter()

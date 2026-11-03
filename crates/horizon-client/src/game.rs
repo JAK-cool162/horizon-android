@@ -196,6 +196,7 @@ mod music;
 mod names;
 mod narrator;
 mod native_block_entity_draw;
+mod native_bridge;
 mod native_components;
 mod native_criteria;
 mod native_entities;

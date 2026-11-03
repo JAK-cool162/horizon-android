@@ -235,6 +235,8 @@ class Tree:
     hooks: int
     bundled: list[str]
     mixins_rev: str
+    # Hook targets still in a pending fragment (tools/native-hook-fragments): no API number yet.
+    pending: frozenset[str] = frozenset()
 
     @staticmethod
     def read(root: Path) -> 'Tree':
@@ -250,7 +252,10 @@ class Tree:
                        r'pub const ANDROID_BUNDLED: \[\(&str, &str, &str\); \d+\] = \[(.*?)\n\];')
         bundled = re.findall(r'\(\s*"([a-z0-9_]+)"', listing)
         mixins_rev = find('launcher/src/native_mods.rs', r'pub const MIXINS_REV: &str = "([0-9a-f]{40})"')
-        return Tree(game, hooks, bundled, mixins_rev)
+        pending = frozenset(
+            hook['target'] for fragment in sorted((root / 'tools/native-hook-fragments').glob('*.json'))
+            for hook in json.loads(fragment.read_text(encoding='utf-8')).get('hooks', []))
+        return Tree(game, hooks, bundled, mixins_rev, pending)
 
 
 @dataclass
@@ -544,6 +549,11 @@ def new_mod(mod_id: str, folder: Path) -> Path:
     return folder
 
 
+def pending_hooks(toml: dict, tree: Tree) -> list[str]:
+    """The injections' targets that are hook points still waiting for their API number."""
+    return [str(i['target']) for i in toml.get('injection', []) if str(i.get('target', '')) in tree.pending]
+
+
 def only_hook_points(toml: dict) -> bool:
     """Whether every injection is on a native hook point (a hook name or a native_hooks function)."""
     injections = toml.get('injection', [])
@@ -574,8 +584,14 @@ def pack(folder: Path, out: Path | None, tree: Tree, hooks: int | None) -> Path:
         text = text.rstrip('\n') + f'\n\n[compatibility]\nhorizon_revision = "{horizon}"\n'
     elif not REVISION.fullmatch(horizon):
         raise ModError(f'{folder}: horizon_revision must be a full 40-character commit')
-    if hooks is None and only_hook_points(toml):
+    pending = pending_hooks(toml, tree)
+    if pending and hooks is not None:
+        raise ModError(f'{folder} hooks {pending[0]}, which has no hook API number yet: '
+                       'it can only be pinned to this commit (leave out --hooks)')
+    if hooks is None and only_hook_points(toml) and not pending:
         hooks = tree.hooks
+    elif pending:
+        print(f'{mod_id}: pinned to this commit, as {pending[0]} has no hook API number yet')
     manifest = {'game': tree.game, 'horizon': horizon, 'id': mod_id, 'mixins': tree.mixins_rev,
                 'schema': 1, 'version': version}
     if hooks is not None:

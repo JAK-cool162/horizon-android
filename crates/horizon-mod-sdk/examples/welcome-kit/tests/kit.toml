@@ -1,0 +1,28 @@
+# A new player gets the kit through the Extras API, once; /tps reads its values.
+
+[bridge.extras]
+version = 1
+values = { tps = "20.0", mspt = "3.1" }
+replies = { command = "" }
+
+[[step]]
+join = "Alex"
+expect.calls = [
+  "extras command give Alex minecraft:stone_pickaxe 1",
+  "extras command give Alex minecraft:bread 8",
+  "extras command give Alex minecraft:torch 16",
+]
+expect.told = ["Alex: Welcome, Alex! Here is your starter kit."]
+
+# Back again: no second kit.
+[[step]]
+leave = "Alex"
+
+[[step]]
+join = "Alex"
+expect.calls = []
+expect.told = []
+
+[[step]]
+command = "tps"
+expect.feedback = "20.0 TPS, 3.1 ms per tick"

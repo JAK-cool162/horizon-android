@@ -316,6 +316,56 @@ pub struct Script {
     pub clock: ClockSet,
     #[serde(default, rename = "step")]
     pub steps: Vec<Step>,
+    /// Capability `bridge`: the native APIs the game serves, by name, as a
+    /// native mod would. Every other API is not served.
+    #[serde(default)]
+    pub bridge: std::collections::BTreeMap<String, ApiSet>,
+}
+
+/// A native API the script serves (`[bridge.extras]`): its version, the values
+/// it published, and its answer to each function; a function in neither
+/// `replies` nor `errors` answers that the API has no such function. Answers
+/// arrive within the step that called.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ApiSet {
+    #[serde(default = "first_version")]
+    version: u32,
+    #[serde(default)]
+    values: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    replies: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    errors: std::collections::BTreeMap<String, String>,
+}
+fn first_version() -> u32 {
+    1
+}
+
+/// What the script's native APIs answer to a call.
+fn bridge_answer(
+    apis: &std::collections::BTreeMap<String, ApiSet>,
+    api: &str,
+    function: &str,
+) -> Result<String, String> {
+    let Some(set) = apis.get(api) else {
+        return Err(crate::bridge_unserved(api));
+    };
+    match (set.replies.get(function), set.errors.get(function)) {
+        (Some(answer), _) => Ok(answer.clone()),
+        (None, Some(error)) => Err(error.clone()),
+        (None, None) => Err(format!("{api} has no function {function}")),
+    }
+}
+
+/// An event a native API sends during a step (`bridge-event`).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventSet {
+    api: String,
+    name: String,
+    #[serde(default)]
+    data: String,
 }
 
 /// Fields of the player to change; the others keep their values. A server
@@ -421,6 +471,9 @@ pub struct Step {
     /// `world`); every other block is air.
     #[serde(default)]
     blocks: Vec<BlockSet>,
+    /// Capability `bridge`: an event of a native API, after joins and before
+    /// the step's ticks.
+    bridge_event: Option<EventSet>,
     #[serde(default)]
     expect: Expect,
 }
@@ -449,6 +502,9 @@ pub struct Expect {
     /// The Overworld blocks the mod broke with their loot during the step, in
     /// order, as `x y z state`.
     drops: Option<Vec<String>>,
+    /// Capability `bridge`: every `bridge.call` during the step, in order, as
+    /// `api function args`.
+    calls: Option<Vec<String>>,
     /// The mod is turned off during this step, for a reason holding this text.
     /// Without it, a mod that stops fails the test.
     stopped: Option<String>,
@@ -468,7 +524,7 @@ impl Script {
             self.clock.apply(c);
         }
         for (i, step) in self.steps.iter().enumerate() {
-            step.run(game)
+            step.run(game, &self.bridge)
                 .map_err(|e| format!("step {} ({}): {e}", i + 1, step.describe()))?;
         }
         Ok(())
@@ -545,10 +601,24 @@ impl Step {
         parts.join(", ")
     }
 
-    fn run(&self, game: &mut TestGame) -> Result<(), String> {
+    fn run(
+        &self,
+        game: &mut TestGame,
+        apis: &std::collections::BTreeMap<String, ApiSet>,
+    ) -> Result<(), String> {
         if self.reload {
             game.reload()?;
         }
+        game.mods.set_bridge(
+            apis.iter().map(|(n, a)| (n.clone(), a.version)).collect(),
+            apis.iter()
+                .flat_map(|(n, a)| {
+                    a.values
+                        .iter()
+                        .map(|(k, v)| ((n.clone(), k.clone()), v.clone()))
+                })
+                .collect(),
+        );
         if self.title_screen {
             game.player = None;
             game.clock = None;
@@ -560,6 +630,9 @@ impl Step {
             .lend_world(Box::new(ScriptWorld(game.world.clone())));
         if let Some(name) = &self.join {
             game.join(name);
+        }
+        if let Some(e) = &self.bridge_event {
+            game.mods.bridge_event(&e.api, &e.name, &e.data);
         }
         let server = game.server();
         let actor = |game: &TestGame| match &self.actor {
@@ -631,8 +704,49 @@ impl Step {
         {
             return Err(format!("{name} is not on the server"));
         }
+        // The game answers bridge calls at the next tick; here, within the step,
+        // a few rounds deep (a reply may call again).
+        let mut out = Vec::new();
+        let mut calls = Vec::new();
+        for _ in 0..8 {
+            let batch = game.drain();
+            let pending: Vec<_> = batch
+                .iter()
+                .filter_map(|o| match o {
+                    Output::BridgeCall {
+                        mod_id,
+                        id,
+                        api,
+                        function,
+                        args,
+                        ..
+                    } => Some((
+                        mod_id.clone(),
+                        *id,
+                        api.clone(),
+                        function.clone(),
+                        args.clone(),
+                    )),
+                    _ => None,
+                })
+                .collect();
+            out.extend(batch);
+            if pending.is_empty() {
+                break;
+            }
+            for (mod_id, id, api, function, args) in pending {
+                calls.push(format!("{api} {function} {args}").trim_end().to_owned());
+                let answer = bridge_answer(apis, &api, &function);
+                game.mods.bridge_reply(
+                    &mod_id,
+                    id,
+                    &api,
+                    &function,
+                    answer.as_deref().map_err(String::as_str),
+                );
+            }
+        }
         game.mods.take_world();
-        let out = game.drain();
         let mut dropped = Vec::new();
         for o in &out {
             match o {
@@ -758,6 +872,9 @@ impl Step {
         }
         if let Some(want) = &e.drops {
             same("drops", want, &dropped)?;
+        }
+        if let Some(want) = &e.calls {
+            same("calls", want, &calls)?;
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());

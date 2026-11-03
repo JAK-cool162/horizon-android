@@ -1,0 +1,10 @@
+# Without the native mod: the player is told what to install, and nothing is called.
+
+[[step]]
+join = "Alex"
+expect.calls = []
+expect.told = ["Alex: No starter kit: this server needs the Extras API native mod (extras_api.hnmod)"]
+
+[[step]]
+command = "tps"
+expect.error = "Install the Extras API native mod (extras_api.hnmod) for /tps"

@@ -98,6 +98,9 @@ pub(super) struct ModsState {
     /// Playing at the last frame, for `mod_input_frame`.
     #[cfg(feature = "mods")]
     pub(super) playing: bool,
+    /// Capability `bridge`: what native mods serve, and the calls and events
+    /// for the next tick's hooks (`native_bridge.rs`).
+    pub(super) bridge: super::native_bridge::BridgeState,
 }
 
 /// The mappings `input.mapping` answers for, with the default key their
@@ -704,6 +707,7 @@ impl Game<'_> {
         self.tick_sandbox_mod_use();
         let snapshot = self.mod_snapshot();
         self.mods.mods.set_snapshot(snapshot);
+        self.serve_bridge();
         self.mods.mods.tick(self.ticks);
         self.show_mod_output();
     }
@@ -839,6 +843,17 @@ impl Game<'_> {
                     if self.mods.screen.as_ref().is_some_and(|s| s.owner == owner) {
                         self.close_mod_screen(false);
                     }
+                    continue;
+                }
+                Output::BridgeCall {
+                    mod_id,
+                    server,
+                    id,
+                    api,
+                    function,
+                    args,
+                } => {
+                    self.queue_bridge_call(mod_id, server, id, api, function, args);
                     continue;
                 }
             };

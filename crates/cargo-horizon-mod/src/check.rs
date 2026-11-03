@@ -285,6 +285,9 @@ fn play(path: &Path, report: &mut Report) -> Result<(), String> {
                 positions.len(),
                 if drops { " with drops" } else { "" }
             ),
+            Output::BridgeCall { api, function, .. } => {
+                format!("called {function} of the native API {api}")
+            }
             Output::OpenScreen { .. } => "opened a screen".to_string(),
             Output::CloseScreen { .. } => "closed its screen".to_string(),
             Output::PlaceRecipe { book_id, all } => {

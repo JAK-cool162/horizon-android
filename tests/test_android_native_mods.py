@@ -134,6 +134,20 @@ class AuthoringTests(unittest.TestCase):
             with self.assertRaises(tool.ModError):
                 tool.new_mod('hello_box', folder)
 
+    def test_a_mod_on_a_hook_without_its_api_number_is_pinned(self):
+        target = "horizon_client::game::native_hooks::Game<'_>::native_bridge_call"
+        tree = tool.Tree(game='26.3', hooks=80, bundled=[], mixins_rev=REV, pending=frozenset([target]))
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = tool.new_mod('bridge_api', Path(temporary) / 'bridge_api')
+            mixin = folder / 'horizon-mixin.toml'
+            mixin.write_text(mixin.read_text().replace(
+                "horizon_client::game::native_hooks::Game<'_>::native_hud", target))
+            with self.assertRaises(tool.ModError):
+                tool.pack(folder, None, tree, 80)
+            mod = tool.read_zip(tool.pack(folder, None, tree, None).read_bytes(), 'bridge_api')
+            self.assertIsNone(mod.hooks)
+            self.assertEqual(tool.plan([mod], tree).pinned, [mod])
+
     def test_a_mod_hooking_game_functions_is_pinned(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = tool.new_mod('harvest', Path(temporary) / 'harvest')

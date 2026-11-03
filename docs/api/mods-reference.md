@@ -19,6 +19,7 @@ The contract between Horizon and its mods: the WIT package `horizon:mods@0.1.0`,
 | `players` | [`players`](#players) | see who is on the server and message them |
 | `world` | [`world`](#world) | read and change the world's blocks |
 | `recipes` | [`recipes`](#recipes) | read the game's recipes and items and which recipes you know, place recipes in your crafting grid and, in creative mode, give you items |
+| `bridge` | [`bridge`](#bridge) | use the APIs your native mods (.hnmod) add to the game, which can do whatever those mods allow |
 
 ## World `horizon-mod`
 
@@ -75,6 +76,13 @@ The game's side of capability `recipes` (imports only).
 
 - Imports (what the game offers): `recipes`, `browser`
 - Exports (what the mod provides): 
+
+## World `bridge-host`
+
+Capability `bridge`, for client and server mods alike: the game finds it in a mod as `ui-host` is found, and the SDK builds every mod with it.
+
+- Imports (what the game offers): `bridge`
+- Exports (what the mod provides): `bridge-events`
 
 ## `log`
 
@@ -711,6 +719,29 @@ Server mods' events that arrived after `server-events` (API level 8). An interfa
 | Function | Signature | What it does |
 | --- | --- | --- |
 | `block-used` | `func(player: string, dimension: string, x: s32, y: s32, z: s32, state: string, item: option<string>)` | The player named `player` right-clicked the block `state` at `x y z` in `dimension`, holding `item` (`minecraft:wheat_seeds`) if anything. It arrives with the next tick's events, after the game handled the click: a mod reacts to it (with `set-blocks`, `break-blocks`) rather than stopping it. |
+
+## `bridge`
+
+Access: capability `bridge`.
+
+Capability `bridge` (experimental, API level 9): APIs that native mods (`.hnmod`) add to the game for sandboxed mods. A native mod names its API (`extras`) and documents its functions, values and events; their arguments and results are text in the form it documents (often JSON). The game needs no new function here for a new API: the native mod serves it, and a mod that uses it loads without rebuilding the game.
+
+| Function | Signature | What it does |
+| --- | --- | --- |
+| `version` | `func(api: string) -> option<u32>` | The version of `api` a native mod in this game serves; none when no native mod serves it (tell the player which `.hnmod` to install). |
+| `get` | `func(api: string, key: string) -> option<string>` | A value `api` published (`native_bridge_publish`), as of the start of this call; none when it published nothing under `key`. |
+| `call` | `func(api: string, function: string, args: string) -> result<u64, string>` | Calls `function` of `api` with `args`. The native mod runs it at the start of the next tick, where the game's state is whole; its answer comes back as `bridge-events.reply` with the id this returns, an error when no native mod serves `api`. An error now (nothing queued) for a name over 64 bytes, `args` over 64 KiB, or over 64 calls in one hook. |
+
+## `bridge-events`
+
+Access: exported by the mod: the game calls it.
+
+What the game tells a mod with capability `bridge`: an interface of its own, so mods built before it still load.
+
+| Function | Signature | What it does |
+| --- | --- | --- |
+| `reply` | `func(id: u64, api: string, function: string, answer: result<string, string>)` | The answer to the `bridge.call` that returned `id`. |
+| `event` | `func(api: string, name: string, data: string)` | Something `api` told every mod with capability `bridge` (`native_bridge_event`), at the start of a tick. |
 
 ## `server-events`
 
