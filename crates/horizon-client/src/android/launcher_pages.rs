@@ -78,6 +78,8 @@ pub(super) enum Action {
     AiConvert,
     /// Setup's GitHub token row: the token on the clipboard, saved.
     TokenFromClipboard,
+    /// Setup's Groq key row: the key on the clipboard, saved as the fork's secret.
+    GroqKeyFromClipboard,
     /// The AI conversion's run on GitHub.
     OpenAiRun,
     InstallNative,
@@ -1625,8 +1627,7 @@ impl Launcher {
                     ".jar or .hnmod to Horizon mod, code included",
                     "An AI reads the mod, writes the Horizon version, then builds and tests it \
                      until it works (5-20 min). It runs on your GitHub fork (Setup: repository \
-                     and token) with your own key: add the secret GROQ_API_KEY (or \
-                     ANTHROPIC_API_KEY) in the fork's Settings > Secrets and variables > Actions.",
+                     and token) with your own Groq key: copy it, then tap Setup > Groq API key.",
                     ai_status,
                     if ai.running() {
                         "Open the run on GitHub"
@@ -1689,11 +1690,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (24.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (24.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             // A plate under the list: its labels would sit on the sunset's bright bands.
             style::card(
@@ -1846,6 +1847,11 @@ impl Launcher {
                         "Not set / copy it on GitHub, then tap here to paste".into()
                     },
                     Action::TokenFromClipboard,
+                ),
+                (
+                    "Groq API key (AI convert)",
+                    "Copy it on console.groq.com, then tap: saved on your fork, not here".into(),
+                    Action::GroqKeyFromClipboard,
                 ),
             ]
             .into_iter()
@@ -2437,6 +2443,24 @@ impl Launcher {
                                  starts with github_pat_), then tap GitHub token again"
                             .into(),
                     };
+            }
+            Some(Action::GroqKeyFromClipboard) => {
+                let key = crate::platform::clipboard_get()
+                    .map(|k| k.trim().to_owned())
+                    .filter(|k| crate::native_build::groq_key(k));
+                let repo = crate::native_build::repository(&self.catalog.config.github_repo);
+                self.catalog.status = match (key, repo, crate::native_build::token()) {
+                    (None, ..) => "The clipboard has no Groq key: copy it on console.groq.com \
+                                   (it starts with gsk_), then tap Groq API key again"
+                        .into(),
+                    (Some(_), None, _) | (Some(_), _, None) => {
+                        "Set the GitHub token first: the key is saved on your fork".into()
+                    }
+                    (Some(key), Some(repo), Some(token)) => {
+                        crate::native_build::save_ai_key(repo, token, key);
+                        "Saving the Groq key on your GitHub fork...".into()
+                    }
+                };
             }
             Some(Action::PasteToken) => {
                 let pasted = crate::platform::clipboard_get();

@@ -663,6 +663,53 @@ fn convert(
     result
 }
 
+/// Whether `key` looks like a Groq API key (`gsk_` and letters and digits).
+pub fn groq_key(key: &str) -> bool {
+    key.starts_with("gsk_")
+        && (20..=200).contains(&key.len())
+        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Saves a Groq key as the fork's Actions secret GROQ_API_KEY, sealed with the repository's
+/// public key as GitHub asks: it goes to GitHub only and is not kept on the phone. The result
+/// reaches the status line.
+pub fn save_ai_key(repo: String, token: String, key: String) {
+    std::thread::spawn(move || {
+        let api = Api::new(repo, token);
+        let result = (|| -> Result<(), String> {
+            let public = api
+                .get("/actions/secrets/public-key")
+                .map_err(|e| denied(e, "Secrets"))?
+                .ok_or("GitHub gave no key for the repository's secrets")?;
+            let key_id = public["key_id"]
+                .as_str()
+                .ok_or("GitHub's secrets key has no id")?;
+            let sealing: [u8; 32] = public["key"]
+                .as_str()
+                .and_then(plan::base64_decode)
+                .and_then(|k| k.try_into().ok())
+                .ok_or("GitHub's secrets key is not an X25519 key")?;
+            let sealed = crate::sealed_box::seal(&sealing, key.as_bytes())?;
+            api.send(
+                "PUT",
+                &format!("/actions/secrets/{}", AI_SECRETS[0]),
+                serde_json::json!({"encrypted_value": plan::base64(&sealed), "key_id": key_id}),
+            )
+            .map_err(|e| denied(e, "Secrets"))?;
+            Ok(())
+        })();
+        crate::documents::notify(
+            match result {
+                Ok(()) => "Groq key saved on your GitHub fork (secret GROQ_API_KEY), not on this \
+                           phone. Convert with AI is ready."
+                    .to_owned(),
+                Err(e) => format!("Could not save the Groq key: {e}"),
+            },
+            false,
+        );
+    });
+}
+
 /// A refusal of the step that needs `permission`, named: GitHub's fine-grained tokens add a
 /// permission as Read-only, and a 403 alone doesn't say which one to change.
 fn denied(error: String, permission: &str) -> String {
