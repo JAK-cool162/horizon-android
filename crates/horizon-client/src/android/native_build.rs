@@ -614,10 +614,25 @@ fn convert(
         .map_err(|e| denied(e, "Actions"))?;
     url(link);
     let started = Instant::now();
+    // The run goes on on GitHub whatever the phone's connection does: a lost poll waits and asks
+    // again (Wi-Fi to mobile data, the screen off) rather than ending the conversion.
+    let mut lost = 0;
     loop {
-        let state = api
-            .get(&format!("/actions/runs/{run}"))?
-            .ok_or("The conversion run is gone from GitHub")?;
+        let state = match api.get(&format!("/actions/runs/{run}")) {
+            Ok(state) => {
+                lost = 0;
+                state.ok_or("The conversion run is gone from GitHub")?
+            }
+            Err(e) if e.starts_with("Could not reach GitHub") && lost < 60 => {
+                lost += 1;
+                set(format!(
+                    "Waiting for the connection... the AI keeps converting {name} on GitHub"
+                ));
+                std::thread::sleep(Duration::from_secs(10));
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         match plan::run_state(&state) {
             Ok(Some(())) => break,
             Ok(None) => {
@@ -631,9 +646,8 @@ fn convert(
         }
     }
     set("Downloading the converted mod...".into());
-    let artifacts = api
-        .get(&format!("/actions/runs/{run}/artifacts"))?
-        .unwrap_or_default();
+    let artifacts =
+        retry(|| api.get(&format!("/actions/runs/{run}/artifacts")))?.unwrap_or_default();
     let (link, size) = artifacts["artifacts"]
         .as_array()
         .and_then(|list| {
@@ -656,10 +670,24 @@ fn convert(
     }
     std::fs::create_dir_all(mods).map_err(|e| e.to_string())?;
     let archive = mods.join(".ai-convert.partial");
-    download(api, &link, &archive, MAX_CONVERTED)?;
+    retry(|| download(api, &link, &archive, MAX_CONVERTED))?;
     let result = install_converted(&archive, mods);
     let _ = std::fs::remove_file(&archive);
     result
+}
+
+/// `call`, asked again a few times while GitHub can't be reached.
+fn retry<T>(mut call: impl FnMut() -> Result<T, String>) -> Result<T, String> {
+    let mut tries = 0;
+    loop {
+        match call() {
+            Err(e) if e.starts_with("Could not reach GitHub") && tries < 6 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_secs(10));
+            }
+            result => return result,
+        }
+    }
 }
 
 /// Whether `key` looks like a Groq API key (`gsk_` and letters and digits).

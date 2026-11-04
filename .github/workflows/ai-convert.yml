@@ -77,30 +77,39 @@ jobs:
           rustup target add wasm32-unknown-unknown
           cargo install --locked --path crates/cargo-horizon-mod
 
-      # Groq: the workflow makes the project and picks what the model reads (its context is
-      # smaller), aider writes the port, runs the build and tests after each edit and fixes them.
-      - name: The project, and what the model reads
-        if: env.AI == 'groq'
+      # The project (its own cargo workspace: it sits inside this repository's), the mod's summary
+      # for the AI (work/context.md) and the mod bridge's Hapi documentation (work/hapi.md).
+      - name: The project, and what the AI reads
         run: |
           set -euo pipefail
           id=$(python3 .github/ai-convert/mod_id.py work/unpacked "$(basename "$FILE")")
           echo "MOD_ID=$id" >> "$GITHUB_ENV"
           cargo horizon-mod new "work/project/$id" --sdk-path "$GITHUB_WORKSPACE/crates/horizon-mod-sdk"
-          python3 .github/ai-convert/context.py work context.md
+          printf '\n[workspace]\n' >> "work/project/$id/Cargo.toml"
+          python3 .github/ai-convert/context.py work work/context.md
+          awk '/^## The mod bridge/{on=1; print; next} on && /^## /{exit} on' docs/android-native-mods.md > work/hapi.md
           touch "work/project/$id/REPORT.md"
+          # The empty template builds: what fails later is the port.
+          (cd "work/project/$id" && cargo horizon-mod build >/dev/null)
+
+      # Groq: aider writes the port and runs the build and tests after each edit to fix them.
       - name: An open model on Groq ports the mod (aider)
         if: env.AI == 'groq'
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          MODEL: ${{ vars.AI_MODEL || 'groq/moonshotai/kimi-k2-instruct-0905' }}
+          WANTED: ${{ vars.AI_MODEL }}
         run: |
           set -euo pipefail
+          # The best coding model this key can use now (Groq's list changes), unless AI_MODEL says.
+          model=$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
+            | python3 .github/ai-convert/pick_model.py "$WANTED")
+          echo "Model: $model"
           python3 -m venv /tmp/aider
           /tmp/aider/bin/pip install --quiet aider-chat
           cd "work/project/$MOD_ID"
-          /tmp/aider/bin/aider --model "$MODEL" --yes-always --no-git --no-auto-commits \
+          /tmp/aider/bin/aider --model "groq/$model" --yes-always --no-git --no-auto-commits \
             --no-show-model-warnings --no-check-update --analytics-disable --map-tokens 0 \
-            --read ../../context.md \
+            --read ../../context.md --read ../../hapi.md \
             --read "$GITHUB_WORKSPACE/docs/api/mods-reference.md" \
             --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/src/lib.rs" \
             --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/right-harvest/src/lib.rs" \
@@ -138,11 +147,12 @@ jobs:
             How .hmod mods work: read `docs/mods.md` (manifest, capabilities, content mods,
             two-sided mods), `docs/api/mods-reference.md` (every API function and event), the
             SDK in `crates/horizon-mod-sdk/` and its example mods in
-            `crates/horizon-mod-sdk/examples/`. A mod is a Rust crate compiled to WebAssembly;
-            it can only do what the API offers. Then follow `.github/ai-convert/task.md`, with
-            the project made by `cd work && cargo horizon-mod new project/<id> --sdk-path
-            "$GITHUB_WORKSPACE/crates/horizon-mod-sdk"`, built and tested in `work/project/<id>`,
-            its `target/horizon-mod/<id>.hmod` copied to `work/out/` and the report written to
+            `crates/horizon-mod-sdk/examples/`; `work/hapi.md` describes the mod bridge and Hapi,
+            the Horizon API built into the Android app. A mod is a Rust crate compiled to
+            WebAssembly; it can only do what the API offers. Then follow
+            `.github/ai-convert/task.md` in the project already made for it,
+            `work/project/${{ env.MOD_ID }}` (build and test there), copy its
+            `target/horizon-mod/*.hmod` to `work/out/` and write the report to
             `work/out/REPORT.md`. Don't change anything outside `work/`.
 
       - name: The port checked by the game's own rules
