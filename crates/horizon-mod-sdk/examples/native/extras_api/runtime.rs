@@ -133,6 +133,11 @@ fn options(s: &horizon_client::settings::Settings) -> Value {
         "cave_culling": s.horizon.cave_culling,
         "entity_culling": s.horizon.entity_culling,
         "fog_culling": s.horizon.fog_culling,
+        "overlay": match s.horizon.overlay {
+            horizon_client::graphics::Overlay::Off => "off",
+            horizon_client::graphics::Overlay::Fps => "fps",
+            horizon_client::graphics::Overlay::Graph => "graph",
+        },
     })
 }
 
@@ -202,6 +207,16 @@ fn set_option(game: &mut crate::game::Game<'_>, args: &Value) -> Result<String, 
         }
         "fog_culling" => {
             s.horizon.fog_culling = flag(value)?;
+            custom = false;
+        }
+        // The performance overlay: frame times and memory, with a graph.
+        "overlay" => {
+            s.horizon.overlay = match value.as_str().unwrap_or_default() {
+                "off" => horizon_client::graphics::Overlay::Off,
+                "fps" => horizon_client::graphics::Overlay::Fps,
+                "graph" => horizon_client::graphics::Overlay::Graph,
+                _ => return Err("expected \"off\", \"fps\" or \"graph\"".into()),
+            };
             custom = false;
         }
         "shader_pack" => {

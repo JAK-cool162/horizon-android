@@ -121,7 +121,7 @@ const CHOICES: &[Choice] = &[
 /// Horizon's culling, Sodium's kind: less drawn, the same picture (Extras API 3.2). Fog culling
 /// skips what the Nether's fog, lava, powder snow, blindness or darkness hide entirely; entity
 /// culling skips entities and block entities behind opaque blocks; cave culling skips sections
-/// no open face leads to (vanilla's occlusion graph).
+/// no open face leads to (vanilla's occlusion graph). The overlay shows frame times and memory.
 const PERFORMANCE: &[Choice] = &[
     Choice {
         name: "fog_culling",
@@ -137,6 +137,15 @@ const PERFORMANCE: &[Choice] = &[
         name: "cave_culling",
         label: "Cave Culling",
         values: &[("false", "Off"), ("true", "On")],
+    },
+    Choice {
+        name: "overlay",
+        label: "FPS & RAM Overlay",
+        values: &[
+            ("\"off\"", "Off"),
+            ("\"fps\"", "Numbers"),
+            ("\"graph\"", "Numbers + Graph"),
+        ],
     },
 ];
 
@@ -283,7 +292,7 @@ impl VideoSettings {
             .filter(|(_, c)| !options[c.name].is_null())
             .collect();
         if !performance.is_empty() {
-            widgets.push(text(4, "Performance (same picture)", 0xFFFF55));
+            widgets.push(text(4, "Performance", 0xFFFF55));
             for (i, choice) in performance {
                 widgets.push(button(
                     PERFORMANCE_ID + i as u32,

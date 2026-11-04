@@ -50,6 +50,13 @@ Developer regression check: `python tools/test_android_performance.py`. It runs
 the actual recorder/statistics/timing code in a host harness and substitutes only
 Android publication. The isolated storage probe tests provider access separately.
 
+## The overlay
+
+Video Settings > Horizon > Overlay (or Video Settings+'s **FPS & RAM Overlay**) shows
+frames per second, frame, CPU and GPU times, and memory: the game's resident memory and
+the system's available and total memory, read once a second from `/proc` (amber below 10%
+free, red below 5%). Numbers + Graph adds the recent frame times.
+
 ## What can be timed on a phone
 
 A phone's GPU renders each render pass tile by tile, so timestamps between the
