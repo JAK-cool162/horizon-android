@@ -14,6 +14,8 @@ mod import_plan;
 mod jar_convert;
 #[path = "android/launcher.rs"]
 mod launcher;
+#[path = "android/launcher_sky.rs"]
+mod launcher_sky;
 #[path = "android/launcher_style.rs"]
 mod launcher_style;
 #[path = "android/native_build.rs"]

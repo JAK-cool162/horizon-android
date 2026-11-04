@@ -372,7 +372,8 @@ pub(super) fn button(
             | Action::ExportDiagnostics
             | Action::ExportPerformance
     );
-    let radius = if field { 12.0 } else { (h / 2.0).min(22.0) };
+    // Controls round at the Night look's RADIUS_CONTROL; the main action has pixel corners.
+    let radius = 8.0;
     if accent {
         style::action_pill(ui, rect, radius);
     } else {
@@ -609,8 +610,10 @@ impl Launcher {
                 )
             };
             let [hx, hy, hw, hh] = hero;
-            style::card(&mut ui, hero, color::CARD);
             let band = (hh * 0.4).clamp(110.0, 150.0);
+            // The headline stands on the sky, as the desktop launcher's home; the plate holds
+            // what is below it.
+            style::card(&mut ui, [hx, hy + band, hw, hh - band], color::CARD);
             let text_w = style::hero_band(&mut ui, [hx, hy, hw, band]);
             let headline = if installing {
                 "Getting your game ready"

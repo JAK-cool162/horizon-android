@@ -1,76 +1,95 @@
-//! The launcher's look ("Nightly"): glass cards on a deep indigo night with violet, blue and pink
-//! glows, a gradient hero with a synthwave sun, a navigation rail (a bottom bar in portrait),
-//! pill buttons and rounded cards.
+//! The launcher's look: the official Horizon launcher's "Night" (docs/design-system.md,
+//! horizon_theme::night): a pixel night sky that turns to a sunset at the bottom
+//! (launcher_sky.rs), plates with pixel-cut corners over it only where text needs them, one violet
+//! for the main action, a navigation rail (a bottom bar in portrait).
 use crate::catalog::Page;
 use horizon_client::ui_theme::{Face, Ui};
 
-/// The launcher's colour roles. The names the pages used before stay, so dialogs keep working.
+/// The launcher's colour roles, from the Night tokens. The names the pages used before stay, so
+/// dialogs keep working.
 pub mod color {
     use horizon_client::ui_theme::color::hex;
-    /// The page behind everything: the night sky's base.
-    pub const BG: u32 = hex(0x0b0c1d, 255);
-    /// The sky at the bottom of the screen.
-    pub const BG_LOW: u32 = hex(0x150e2e, 255);
-    /// The rail and the bottom bar: glass over the sky.
-    pub const LOW: u32 = hex(0x0e1024, 214);
-    /// Cards: glass, nearly opaque so text stays crisp.
-    pub const CARD: u32 = hex(0x151931, 236);
-    /// A card's 1px rim of light.
-    pub const RIM: u32 = hex(0xffffff, 22);
-    /// Tonal buttons and fields.
-    pub const RAISED: u32 = hex(0x232849, 255);
+    /// Behind everything (`page`).
+    pub const BG: u32 = hex(0x0e0b26, 255);
+    /// The rail and the bottom bar (`side`).
+    pub const LOW: u32 = hex(0x0a0820, 238);
+    /// Plates over the sky (`card` at 84%).
+    pub const CARD: u32 = hex(0x15112e, 214);
+    /// A plate's 1px inner stroke (`stroke` at 12%).
+    pub const RIM: u32 = hex(0xb9acff, 31);
+    /// Buttons, fields and raised plates (`card_hi` at 90%).
+    pub const RAISED: u32 = hex(0x231c4a, 230);
     /// Pressed plates, a switch's track when off.
-    pub const HOVER: u32 = hex(0x2e3460, 255);
-    /// Dividers.
-    pub const BORDER: u32 = hex(0x2c3156, 255);
+    pub const HOVER: u32 = hex(0x2e2760, 240);
+    /// Rules between rows.
+    pub const BORDER: u32 = hex(0x2a2452, 255);
     /// Outlines and an off switch's thumb.
-    pub const OUTLINE: u32 = hex(0x7a7fa8, 255);
-    pub const TEXT: u32 = hex(0xeef0ff, 255);
-    /// Secondary text.
-    pub const MUTED: u32 = hex(0xa6abd1, 255);
-    /// The one filled action per screen.
-    pub const ACCENT: u32 = hex(0x9d8cff, 255);
+    pub const OUTLINE: u32 = hex(0x8a84ad, 255);
+    /// Text (`ink`).
+    pub const TEXT: u32 = hex(0xf4f2ff, 255);
+    /// Details and captions (`muted`).
+    pub const MUTED: u32 = hex(0xa59fc6, 255);
+    /// The accent as text, switches and focus (`accent_hi`).
+    pub const ACCENT: u32 = hex(0xa08cff, 255);
     pub const ON_ACCENT: u32 = hex(0x170c4a, 255);
-    /// The avatar and the logo tile.
-    pub const ACCENT_CONTAINER: u32 = hex(0x3b2d91, 255);
-    pub const ON_ACCENT_CONTAINER: u32 = hex(0xf1edff, 255);
-    /// The selected rail item's indicator.
-    pub const SELECTED: u32 = hex(0x2f2a6e, 255);
+    /// The avatar and the logo's tile.
+    pub const ACCENT_CONTAINER: u32 = hex(0x3a2d8c, 255);
+    pub const ON_ACCENT_CONTAINER: u32 = hex(0xffffff, 255);
+    /// The selected navigation item's plate.
+    pub const SELECTED: u32 = hex(0x2b2360, 245);
     pub const GOOD: u32 = hex(0x1f5134, 255);
     pub const ON_GOOD: u32 = hex(0xa6f2bd, 255);
     pub const WARN: u32 = hex(0x5b4300, 255);
     pub const ON_WARN: u32 = hex(0xffdf9e, 255);
     pub const BAD: u32 = hex(0x8c1d18, 255);
     pub const ON_BAD: u32 = hex(0xffdad6, 255);
-    /// The filled action (Launch, Install...): a violet to orchid pill with white ink.
-    pub const ACTION_LEFT: u32 = hex(0x7357ff, 255);
-    pub const ACTION_RIGHT: u32 = hex(0xc046d6, 255);
+    /// The one main action (Launch, Install...): `accent` with `on_accent` ink.
+    pub const ACTION: u32 = hex(0x7656fa, 255);
     pub const ON_ACTION: u32 = hex(0xffffff, 255);
-    /// The hero's dusk, left to right.
-    pub const DUSK_LEFT: u32 = hex(0x3a24b8, 255);
-    pub const DUSK_RIGHT: u32 = hex(0xb0379f, 255);
-    /// The sun, top to bottom.
-    pub const SUN_TOP: u32 = hex(0xffd56b, 255);
-    pub const SUN_BOTTOM: u32 = hex(0xff4f8b, 255);
-    /// The glows in the sky (their centres; they fade out to nothing).
-    pub const GLOW_VIOLET: u32 = hex(0x6b4dff, 92);
-    pub const GLOW_BLUE: u32 = hex(0x2f6bff, 64);
-    pub const GLOW_PINK: u32 = hex(0xff3fa0, 44);
+}
+
+/// A plate's corner step (`PIXEL_CORNER`): plates cut each corner in two, the main action in one.
+const STEP: f32 = 4.0;
+
+/// A rectangle with its corners cut in `steps` pixel steps of [`STEP`] dp, filled with `fill`, and
+/// its 1dp `stroke` following the steps (none when its alpha is 0).
+pub fn pixel_plate(ui: &mut Ui, [x, y, w, h]: [f32; 4], steps: usize, fill: u32, stroke: u32) {
+    let s = STEP;
+    let n = steps as f32;
+    // Rows from the top: row k (k < steps) is inset (steps - k) steps.
+    for k in 0..steps {
+        let inset = (n - k as f32) * s;
+        let row = k as f32 * s;
+        ui.rounded(x + inset, y + row, w - 2.0 * inset, s, 0.0, fill);
+        ui.rounded(x + inset, y + h - row - s, w - 2.0 * inset, s, 0.0, fill);
+    }
+    ui.rounded(x, y + n * s, w, h - 2.0 * n * s, 0.0, fill);
+    if stroke >> 24 == 0 {
+        return;
+    }
+    // The stroke: the straight edges, then each step's riser and tread.
+    let line = |ui: &mut Ui, x: f32, y: f32, w: f32, h: f32| ui.rounded(x, y, w, h, 0.0, stroke);
+    line(ui, x + n * s, y, w - 2.0 * n * s, 1.0);
+    line(ui, x + n * s, y + h - 1.0, w - 2.0 * n * s, 1.0);
+    line(ui, x, y + n * s, 1.0, h - 2.0 * n * s);
+    line(ui, x + w - 1.0, y + n * s, 1.0, h - 2.0 * n * s);
+    for k in 0..steps {
+        let (outer, inner) = ((n - k as f32 - 1.0) * s, (n - k as f32) * s);
+        let row = k as f32 * s;
+        for (left, top) in [(true, true), (false, true), (true, false), (false, false)] {
+            let vx = if left { x + outer } else { x + w - outer - 1.0 };
+            let vy = if top { y + row } else { y + h - row - s };
+            line(ui, vx, vy, 1.0, s);
+            let hx = if left { x + outer } else { x + w - inner };
+            let hy = if top { y + row } else { y + h - row - 1.0 };
+            line(ui, hx, hy, s, 1.0);
+        }
+    }
 }
 
 /// `c` with its alpha set to `a`.
 const fn alpha(c: u32, a: u8) -> u32 {
     (c & 0x00ff_ffff) | (a as u32) << 24
-}
-
-/// The colour `t` of the way from `a` to `b` (every channel, alpha too).
-fn mix(a: u32, b: u32, t: f32) -> u32 {
-    let t = t.clamp(0.0, 1.0);
-    (0..4).fold(0, |out, i| {
-        let (ca, cb) = ((a >> (i * 8)) & 0xff, (b >> (i * 8)) & 0xff);
-        let c = (ca as f32 + (cb as f32 - ca as f32) * t).round() as u32;
-        out | c << (i * 8)
-    })
 }
 
 /// A quad in dp with its own colour at each corner (`corners` and `colors` in the same order,
@@ -88,20 +107,6 @@ fn shade(ui: &mut Ui, corners: [[f32; 2]; 4], colors: [u32; 4]) {
     {
         v.color = colors[i];
     }
-}
-
-/// A rectangle whose corners have their own colours: top left, top right, bottom right, bottom
-/// left.
-pub fn gradient(ui: &mut Ui, [x, y, w, h]: [f32; 4], colors: [u32; 4]) {
-    shade(ui, [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], colors);
-}
-
-/// A rounded rectangle shading from `left` to `right` (opaque colours: its caps overlap).
-pub fn rounded_across(ui: &mut Ui, [x, y, w, h]: [f32; 4], r: f32, left: u32, right: u32) {
-    let r = r.min(w / 2.0).min(h / 2.0);
-    ui.rounded(x, y, 2.0 * r, h, r, left);
-    ui.rounded(x + w - 2.0 * r, y, 2.0 * r, h, r, right);
-    gradient(ui, [x + r, y, w - 2.0 * r, h], [left, right, right, left]);
 }
 
 /// A soft round glow: `color` at the centre fading to nothing at radius `r`.
@@ -215,126 +220,20 @@ fn ambient() -> f32 {
     f32::from_bits(AMBIENT.load(std::sync::atomic::Ordering::Relaxed))
 }
 
-/// The filled action's pill: a soft glow, breathing slowly, under a violet to orchid gradient.
-pub fn action_pill(ui: &mut Ui, [x, y, w, h]: [f32; 4], r: f32) {
-    let breath = (ambient() * 2.2).sin() * 0.5 + 0.5;
-    glow(
-        ui,
-        x + w / 2.0,
-        y + h * 0.75,
-        (w * 0.6).max(h) * (0.92 + 0.12 * breath),
-        alpha(color::ACTION_RIGHT, (44.0 + 34.0 * breath) as u8),
-    );
-    rounded_across(ui, [x, y, w, h], r, color::ACTION_LEFT, color::ACTION_RIGHT);
+/// The main action's plate: the accent with one pixel step cut at each corner.
+pub fn action_pill(ui: &mut Ui, rect: [f32; 4], _r: f32) {
+    pixel_plate(ui, rect, 1, color::ACTION, 0);
 }
 
-/// The night sky behind every page: a dark gradient with violet, blue and pink glows that drift.
+/// The night sky behind every page, its clouds drifting and stars twinkling on the ambient clock.
 pub fn backdrop(ui: &mut Ui, w: f32, h: f32) {
-    gradient(
-        ui,
-        [0.0, 0.0, w, h],
-        [color::BG, color::BG, color::BG_LOW, color::BG_LOW],
-    );
-    let big = w.max(h);
-    let t = ambient();
-    let drift = |speed: f32, phase: f32| (t * speed + phase).sin();
-    glow(
-        ui,
-        w * (0.78 + 0.05 * drift(0.11, 0.0)),
-        h * (-0.05 + 0.04 * drift(0.07, 1.3)),
-        big * 0.62,
-        color::GLOW_VIOLET,
-    );
-    glow(
-        ui,
-        w * (0.05 + 0.05 * drift(0.09, 2.1)),
-        h * (1.02 + 0.03 * drift(0.13, 0.4)),
-        big * 0.5,
-        color::GLOW_BLUE,
-    );
-    glow(
-        ui,
-        w * (0.98 + 0.03 * drift(0.08, 4.0)),
-        h * (0.92 + 0.05 * drift(0.1, 2.7)),
-        big * (0.34 + 0.03 * drift(0.17, 0.9)),
-        color::GLOW_PINK,
-    );
+    crate::launcher_sky::draw(ui, w, h, ambient());
 }
 
-/// A synthwave sun: the top half of a disc of radius `r` standing on `base`, shading from
-/// yellow to pink, cut by bands that widen towards the horizon.
-pub fn sun(ui: &mut Ui, cx: f32, base: f32, r: f32) {
-    const SLICES: usize = 24;
-    let step = r / SLICES as f32;
-    for i in 0..SLICES {
-        let (t0, t1) = (i as f32 / SLICES as f32, (i + 1) as f32 / SLICES as f32);
-        // The lower half of the sun is cut: a gap that grows towards the horizon.
-        let gap = if t0 >= 0.45 {
-            step * (t0 - 0.35) * 1.6
-        } else {
-            0.0
-        };
-        let (y0, y1) = (
-            base - r + i as f32 * step,
-            base - r + (i + 1) as f32 * step - gap,
-        );
-        if y1 <= y0 {
-            continue;
-        }
-        let half = |y: f32| (r * r - (base - y).powi(2)).max(0.0).sqrt();
-        let (top, bottom) = (
-            mix(color::SUN_TOP, color::SUN_BOTTOM, t0),
-            mix(color::SUN_TOP, color::SUN_BOTTOM, t1),
-        );
-        let (h0, h1) = (half(y0), half(y1));
-        shade(
-            ui,
-            [[cx - h0, y0], [cx + h0, y0], [cx + h1, y1], [cx - h1, y1]],
-            [top, top, bottom, bottom],
-        );
-    }
-    glow(
-        ui,
-        cx,
-        base - r * 0.3,
-        r * 1.3,
-        alpha(color::SUN_BOTTOM, 34),
-    );
-}
-
-/// The Play page's hero band: dusk from violet to magenta, square at the bottom where the card's
-/// body joins it, with the sun on the right when there is room. Returns the width left for text.
-pub fn hero_band(ui: &mut Ui, [x, y, w, h]: [f32; 4]) -> f32 {
-    rounded_across(ui, [x, y, w, h], 16.0, color::DUSK_LEFT, color::DUSK_RIGHT);
-    gradient(
-        ui,
-        [x, y + h - 16.0, w, 16.0],
-        [
-            color::DUSK_LEFT,
-            color::DUSK_RIGHT,
-            color::DUSK_RIGHT,
-            color::DUSK_LEFT,
-        ],
-    );
-    // The horizon: a thin bright line where the sun sets.
-    let r = (h * 0.62).min(w * 0.16);
-    if w >= 480.0 && r >= 36.0 {
-        let cx = x + w - r - 28.0;
-        sun(ui, cx, y + h - 6.0, r);
-        gradient(
-            ui,
-            [x + w * 0.45, y + h - 6.0, w * 0.55, 2.0],
-            [
-                alpha(color::SUN_BOTTOM, 0),
-                alpha(color::SUN_TOP, 200),
-                alpha(color::SUN_TOP, 200),
-                alpha(color::SUN_BOTTOM, 0),
-            ],
-        );
-        w - 2.0 * r - 76.0
-    } else {
-        w - 48.0
-    }
+/// The Play page's hero band: like the desktop launcher's home, the headline stands on the sky
+/// itself, with no plate. Returns the width left for text.
+pub fn hero_band(_ui: &mut Ui, [_, _, w, _]: [f32; 4]) -> f32 {
+    w - 48.0
 }
 
 /// The navigation rail's width (landscape) and the bottom bar's height (portrait).
@@ -342,9 +241,8 @@ pub const RAIL: f32 = 92.0;
 pub const BAR: f32 = 76.0;
 
 /// A rounded card.
-pub fn card(ui: &mut Ui, [x, y, w, h]: [f32; 4], fill: u32) {
-    ui.rounded(x, y, w, h, 16.0, fill);
-    ui.border(x, y, w, h, 16.0, color::RIM);
+pub fn card(ui: &mut Ui, rect: [f32; 4], fill: u32) {
+    pixel_plate(ui, rect, 2, fill, color::RIM);
 }
 
 /// A small filled label ("Built in", "Needs build").
@@ -383,20 +281,7 @@ pub fn avatar(ui: &mut Ui, x: f32, y: f32, d: f32, name: &str) {
 
 /// Horizon's tile: a rounded square with the "H".
 pub fn logo(ui: &mut Ui, x: f32, y: f32, s: f32) {
-    glow(
-        ui,
-        x + s / 2.0,
-        y + s / 2.0,
-        s * 1.1,
-        alpha(color::DUSK_LEFT, 120),
-    );
-    rounded_across(
-        ui,
-        [x, y, s, s],
-        s * 0.3,
-        color::DUSK_LEFT,
-        color::DUSK_RIGHT,
-    );
+    pixel_plate(ui, [x, y, s, s], 2, color::RAISED, color::RIM);
     let size = s * 0.5;
     let w = ui.measure(Face::SemiBold, size, "H");
     ui.text(
@@ -495,13 +380,12 @@ pub fn nav_label(page: Page) -> &'static str {
 
 /// The selected item's indicator pill, centred on `cx` with its top at `y`.
 fn nav_indicator(ui: &mut Ui, cx: f32, y: f32) {
-    glow(ui, cx, y + 16.0, 44.0, alpha(color::DUSK_LEFT, 90));
-    rounded_across(
+    pixel_plate(
         ui,
-        [cx - 28.0, y, 56.0, 32.0],
-        16.0,
-        color::ACCENT_CONTAINER,
+        [cx - 30.0, y - 2.0, 60.0, 36.0],
+        1,
         color::SELECTED,
+        color::RIM,
     );
 }
 
