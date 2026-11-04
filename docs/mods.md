@@ -365,18 +365,20 @@ and `tests/server/*.toml` against the server half.
 
 ## Converting mods (Android launcher)
 
-Files > Mods has two converters:
+The Convert page (and Files > Mods) has two converters:
 
 - **Convert a Java mod (.jar) into a Horizon mod** runs on the phone, offline: the jar's blocks,
   items, recipes, loot tables, tags, worldgen, textures, models, sounds and languages become a
   content `.hmod` (horizon-port-pack's carry step). Its Java code does not come over; the report
   says so.
-- **Convert with AI on GitHub** takes a `.jar` or a native `.hnmod` and has Claude Code port the
-  mod, code included, into a `.hmod` on the player's fork (`.github/workflows/ai-convert.yml`): it
-  reads the mod (a jar decompiled with CFR), writes the port with the SDK, builds and tests it with
+- **Convert with AI on GitHub** takes a `.jar` or a native `.hnmod` and has an AI port the mod,
+  code included, into a `.hmod` on the player's fork (`.github/workflows/ai-convert.yml`): it reads
+  the mod (a jar decompiled with CFR), writes the port with the SDK, builds and tests it with
   `cargo horizon-mod` until both pass, and answers with the `.hmod` and a `REPORT.md` of what it
-  left out. It uses the fork and token set up for Build native, and the repository secret
-  `ANTHROPIC_API_KEY` (each run is billed to that key). What the `.hmod` API can't do stays out.
+  left out. It uses the fork and token set up for Build native, and the first repository secret
+  set of `GROQ_API_KEY` (an open model on Groq driven by aider; the variable `AI_MODEL` picks the
+  model, default `groq/moonshotai/kimi-k2-instruct-0905`) and `ANTHROPIC_API_KEY` (Claude Code).
+  Each run is billed to that key. What the `.hmod` API can't do stays out.
 
 Converted mods are for personal use unless the original's licence allows sharing.
 

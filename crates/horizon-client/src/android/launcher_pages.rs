@@ -335,6 +335,29 @@ fn draw_project(
 
 /// Cuts the tap targets from `from` on to a scrolled list's band `top..bottom`: a row at the
 /// edge answers only where it shows.
+/// `text` broken into lines no wider than `width` at word boundaries.
+fn wrap(ui: &Ui, face: Face, size: f32, text: &str, width: f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let candidate = if line.is_empty() {
+            word.to_owned()
+        } else {
+            format!("{line} {word}")
+        };
+        if !line.is_empty() && ui.measure(face, size, &candidate) > width {
+            lines.push(std::mem::take(&mut line));
+            line = word.to_owned();
+        } else {
+            line = candidate;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 fn clip_targets(targets: &mut Vec<([f32; 4], Action)>, from: usize, top: f32, bottom: f32) {
     let kept: Vec<_> = targets
         .drain(from..)
@@ -1558,6 +1581,98 @@ impl Launcher {
             }
             ui.clip_since(clip.0, -left, clip.2, w + left, bottom - clip.2);
             clip_targets(&mut self.targets, clip.1, clip.2, bottom);
+        } else if page == Page::Convert {
+            ui.text(Face::Medium, 24.0, 32.0, 156.0, color::TEXT, "Convert mods");
+            // Two cards: on the phone (content only, offline) and with AI on GitHub (code too).
+            let (one, two) = if compact {
+                let ch = ((h - 64.0 - 204.0 - 16.0) / 2.0).max(220.0);
+                (
+                    [24.0, 204.0, w - 48.0, ch],
+                    [24.0, 204.0 + ch + 16.0, w - 48.0, ch],
+                )
+            } else {
+                let cw = (w - 64.0 - 16.0) / 2.0;
+                let ch = (h - 64.0 - 204.0).max(260.0);
+                ([32.0, 204.0, cw, ch], [48.0 + cw, 204.0, cw, ch])
+            };
+            let ai = &self.catalog.ai_convert;
+            let ai_status = match ai.phase() {
+                crate::native_build::Phase::Working(text) => text,
+                crate::native_build::Phase::Failed(e) => format!("Last try failed: {e}"),
+                crate::native_build::Phase::Ready => {
+                    "Done: the mod is in Files > Mods; enable it in game settings.".into()
+                }
+                crate::native_build::Phase::Idle => String::new(),
+            };
+            let cards = [
+                (
+                    one,
+                    "On this phone",
+                    "Java mod (.jar) to Horizon mod",
+                    "Blocks, items, recipes, loot, textures and sounds come over in a few \
+                     seconds, offline. The mod's Java code does not: machines, menus and new \
+                     mechanics need the AI converter.",
+                    String::new(),
+                    "Choose a .jar",
+                    Action::Import(horizon_client::content_files::Kind::Mods),
+                    true,
+                ),
+                (
+                    two,
+                    "With AI on GitHub",
+                    ".jar or .hnmod to Horizon mod, code included",
+                    "An AI reads the mod, writes the Horizon version, then builds and tests it \
+                     until it works (5-20 min). It runs on your GitHub fork (Setup: repository \
+                     and token) with your own key: add the secret GROQ_API_KEY (or \
+                     ANTHROPIC_API_KEY) in the fork's Settings > Secrets and variables > Actions.",
+                    ai_status,
+                    if ai.running() {
+                        "Open the run on GitHub"
+                    } else {
+                        "Choose a mod to convert"
+                    },
+                    if ai.running() {
+                        Action::OpenAiRun
+                    } else {
+                        Action::AiConvert
+                    },
+                    false,
+                ),
+            ];
+            for ([x, y, cw, ch], title, subtitle, body, status, label, action, accent) in cards {
+                style::card(&mut ui, [x, y, cw, ch], color::CARD);
+                ui.text(Face::SemiBold, 20.0, x + 20.0, y + 16.0, color::TEXT, title);
+                let sub = ui.fit_text(Face::Medium, 14.0, subtitle, cw - 40.0);
+                ui.text(Face::Medium, 14.0, x + 20.0, y + 46.0, color::ACCENT, &sub);
+                let button_y = y + ch - 64.0;
+                let mut line_y = y + 76.0;
+                for line in wrap(&ui, Face::Regular, 14.0, body, cw - 40.0) {
+                    if line_y + 20.0 > button_y - 8.0 {
+                        break;
+                    }
+                    ui.text(Face::Regular, 14.0, x + 20.0, line_y, color::MUTED, &line);
+                    line_y += 20.0;
+                }
+                for line in wrap(&ui, Face::Medium, 13.0, &status, cw - 40.0)
+                    .into_iter()
+                    .take(3)
+                {
+                    if line_y + 20.0 > button_y - 4.0 {
+                        break;
+                    }
+                    line_y += 4.0;
+                    ui.text(Face::Medium, 13.0, x + 20.0, line_y, color::TEXT, &line);
+                    line_y += 16.0;
+                }
+                button(
+                    &mut ui,
+                    &mut self.targets,
+                    [x + 20.0, button_y, cw - 40.0, 44.0],
+                    label,
+                    action,
+                    accent,
+                );
+            }
         } else {
             let c = &self.catalog.config;
             ui.text(

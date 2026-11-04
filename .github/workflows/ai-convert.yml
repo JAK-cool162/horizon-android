@@ -1,8 +1,12 @@
-# AI mod conversion, started by the launcher's "Convert with AI": a Java mod (.jar) or a native mod
+# AI mod conversion, started by the launcher's Convert page: a Java mod (.jar) or a native mod
 # (.hnmod) that the launcher uploaded to this repository's `ai-convert` branch is rewritten as a
-# sandboxed .hmod by Claude Code (anthropics/claude-code-action), which builds and tests it with
-# cargo horizon-mod until it passes. It needs the repository secret ANTHROPIC_API_KEY (Settings >
-# Secrets and variables > Actions); each run is billed to that key.
+# sandboxed .hmod by an AI that builds and tests it with cargo horizon-mod until it passes.
+#
+# The AI is the first of these repository secrets that is set (Settings > Secrets and variables >
+# Actions); each run is billed to that key:
+#   GROQ_API_KEY       an open model on Groq (repository variable AI_MODEL, default
+#                      groq/moonshotai/kimi-k2-instruct-0905), driven by aider (Apache-2.0).
+#   ANTHROPIC_API_KEY  Claude Code (anthropics/claude-code-action).
 #
 # The result is the artifact `converted-hmod`: the .hmod and REPORT.md (what came over, what could
 # not and why), or REPORT.md alone when the mod needs what the .hmod API doesn't offer.
@@ -31,7 +35,14 @@ jobs:
     env:
       CARGO_TERM_COLOR: never
       FILE: ${{ inputs.file }}
+      HAS_GROQ: ${{ secrets.GROQ_API_KEY != '' }}
+      HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
+      - name: An AI key
+        run: |
+          if [ "$HAS_GROQ" = true ]; then echo "AI=groq" >> "$GITHUB_ENV"
+          elif [ "$HAS_ANTHROPIC" = true ]; then echo "AI=anthropic" >> "$GITHUB_ENV"
+          else echo "::error::set the repository secret GROQ_API_KEY or ANTHROPIC_API_KEY"; exit 1; fi
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -65,7 +76,47 @@ jobs:
           rustup show active-toolchain || rustup toolchain install
           rustup target add wasm32-unknown-unknown
           cargo install --locked --path crates/cargo-horizon-mod
+
+      # Groq: the workflow makes the project and picks what the model reads (its context is
+      # smaller), aider writes the port, runs the build and tests after each edit and fixes them.
+      - name: The project, and what the model reads
+        if: env.AI == 'groq'
+        run: |
+          set -euo pipefail
+          id=$(python3 .github/ai-convert/mod_id.py work/unpacked "$(basename "$FILE")")
+          echo "MOD_ID=$id" >> "$GITHUB_ENV"
+          cargo horizon-mod new "work/project/$id" --sdk-path "$GITHUB_WORKSPACE/crates/horizon-mod-sdk"
+          python3 .github/ai-convert/context.py work context.md
+          touch "work/project/$id/REPORT.md"
+      - name: An open model on Groq ports the mod (aider)
+        if: env.AI == 'groq'
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MODEL: ${{ vars.AI_MODEL || 'groq/moonshotai/kimi-k2-instruct-0905' }}
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/aider
+          /tmp/aider/bin/pip install --quiet aider-chat
+          cd "work/project/$MOD_ID"
+          /tmp/aider/bin/aider --model "$MODEL" --yes-always --no-git --no-auto-commits \
+            --no-show-model-warnings --no-check-update --analytics-disable --map-tokens 0 \
+            --read ../../context.md \
+            --read "$GITHUB_WORKSPACE/docs/api/mods-reference.md" \
+            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/src/lib.rs" \
+            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/right-harvest/src/lib.rs" \
+            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/spawn-guard/src/lib.rs" \
+            --test-cmd "cargo horizon-mod build && cargo horizon-mod test" --auto-test \
+            --message-file "$GITHUB_WORKSPACE/.github/ai-convert/task.md" \
+            horizon-mod.toml src/lib.rs tests/hello.toml REPORT.md || true
+          if cargo horizon-mod build && cargo horizon-mod test; then
+            cp target/horizon-mod/*.hmod ../../out/ || true
+          else
+            echo "The port did not build or pass its tests, so no mod came out of it." >> REPORT.md
+          fi
+          cp REPORT.md ../../out/REPORT.md
+
       - name: Claude Code ports the mod
+        if: env.AI == 'anthropic'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -87,29 +138,13 @@ jobs:
             How .hmod mods work: read `docs/mods.md` (manifest, capabilities, content mods,
             two-sided mods), `docs/api/mods-reference.md` (every API function and event), the
             SDK in `crates/horizon-mod-sdk/` and its example mods in
-            `crates/horizon-mod-sdk/examples/` (welcome-kit, right-harvest, spawn-guard, beacons...
-            show client mods, server mods and content). A mod is a Rust crate compiled to
-            WebAssembly; it can only do what the API offers.
+            `crates/horizon-mod-sdk/examples/`. A mod is a Rust crate compiled to WebAssembly;
+            it can only do what the API offers. Then follow `.github/ai-convert/task.md`, with
+            the project made by `cd work && cargo horizon-mod new project/<id> --sdk-path
+            "$GITHUB_WORKSPACE/crates/horizon-mod-sdk"`, built and tested in `work/project/<id>`,
+            its `target/horizon-mod/<id>.hmod` copied to `work/out/` and the report written to
+            `work/out/REPORT.md`. Don't change anything outside `work/`.
 
-            Steps:
-            1. Read the mod and list what it does.
-            2. For each feature, decide whether the .hmod API can do it (client mod, server mod,
-               two-sided mod or content: blocks, items, recipes, textures under assets/ and data/).
-            3. Create the project: `cd work && cargo horizon-mod new <id> --sdk-path
-               "$GITHUB_WORKSPACE/crates/horizon-mod-sdk"` (id: lowercase letters, digits and `_`,
-               from the original mod's id), then write it. Keep the original's names, textures and
-               behaviour as closely as the API allows.
-            4. Build and test: `cargo horizon-mod build` and `cargo horizon-mod test` in the
-               project, with tests in its `tests/` folder. Fix every error and run them again until
-               both pass.
-            5. Copy the built `target/horizon-mod/<id>.hmod` to `work/out/`.
-            6. Write `work/out/REPORT.md` for the player, short and plain: what the port does,
-               what it leaves out and why, the capabilities it asks for, and the original's
-               licence and authors (from its metadata) with a note that the port is for personal use
-               unless that licence allows sharing.
-
-            If nothing useful can be done with the API, don't produce a .hmod: write only
-            `work/out/REPORT.md` saying why. Don't change anything outside `work/`.
       - name: The port checked by the game's own rules
         run: |
           set -euo pipefail
@@ -117,7 +152,7 @@ jobs:
           for hmod in work/out/*.hmod; do
             cargo horizon-mod check "$hmod"
           done
-          [ -f work/out/REPORT.md ] || echo "The conversion finished without a report." > work/out/REPORT.md
+          [ -s work/out/REPORT.md ] || echo "The conversion finished without a report." > work/out/REPORT.md
       - uses: actions/upload-artifact@v4
         if: always()
         with:

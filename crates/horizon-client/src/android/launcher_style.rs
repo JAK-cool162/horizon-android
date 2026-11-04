@@ -352,6 +352,17 @@ pub fn icon(ui: &mut Ui, page: Page, x: f32, y: f32, s: f32, ink: u32) {
             ui.rounded(x + 3.0 * u, y + 5.0 * u, 8.0 * u, 4.0 * u, 1.5 * u, ink);
             ui.rounded(x + 3.0 * u, y + 7.5 * u, 18.0 * u, 12.0 * u, 2.0 * u, ink);
         }
+        Page::Convert => {
+            // Two arrows the opposite ways ("swap"), each a bar and a stepped head.
+            ui.rounded(x + 4.0 * u, y + 7.0 * u, 14.0 * u, 2.5 * u, 1.0 * u, ink);
+            ui.rounded(x + 15.0 * u, y + 4.0 * u, 2.5 * u, 2.5 * u, 0.5 * u, ink);
+            ui.rounded(x + 15.0 * u, y + 9.5 * u, 2.5 * u, 2.5 * u, 0.5 * u, ink);
+            ui.rounded(x + 17.5 * u, y + 6.5 * u, 2.5 * u, 3.5 * u, 0.5 * u, ink);
+            ui.rounded(x + 6.0 * u, y + 15.0 * u, 14.0 * u, 2.5 * u, 1.0 * u, ink);
+            ui.rounded(x + 6.5 * u, y + 12.0 * u, 2.5 * u, 2.5 * u, 0.5 * u, ink);
+            ui.rounded(x + 6.5 * u, y + 17.5 * u, 2.5 * u, 2.5 * u, 0.5 * u, ink);
+            ui.rounded(x + 4.0 * u, y + 14.5 * u, 2.5 * u, 3.5 * u, 0.5 * u, ink);
+        }
         Page::Settings => {
             // Sliders ("tune").
             for (row, knob) in [(6.0, 14.0), (12.0, 6.0), (18.0, 11.0)] {

@@ -469,7 +469,9 @@ fn follow(api: &Api, game: &Path, record: &Record, set: &dyn Fn(String)) -> Resu
 const CONVERT_WORKFLOW: &str = "ai-convert.yml";
 const CONVERT_BRANCH: &str = "ai-convert";
 const CONVERT_ARTIFACT: &str = "converted-hmod";
-const AI_SECRET: &str = "ANTHROPIC_API_KEY";
+/// The AI keys the workflow takes, either one: Groq's (an open model through aider) or
+/// Anthropic's (Claude Code).
+const AI_SECRETS: [&str; 2] = ["GROQ_API_KEY", "ANTHROPIC_API_KEY"];
 const MAX_CONVERTED: u64 = 64 << 20;
 
 /// A Java mod (.jar) or native mod (.hnmod) rewritten as a sandboxed .hmod by Claude Code on the
@@ -556,15 +558,20 @@ fn convert(
         .to_owned();
     api.get("")?
         .ok_or("The repository in Setup does not exist or the token cannot see it")?;
-    if api
-        .get(&format!("/actions/secrets/{AI_SECRET}"))
-        .map_err(|e| format!("{e} (the token needs Secrets read too)"))?
-        .is_none()
-    {
-        return Err(format!(
-            "Add your Anthropic API key to GitHub first: your fork > Settings > Secrets and \
-             variables > Actions > New repository secret, named {AI_SECRET}"
-        ));
+    let mut has_key = false;
+    for secret in AI_SECRETS {
+        has_key |= api
+            .get(&format!("/actions/secrets/{secret}"))
+            .map_err(|e| format!("{e} (the token needs Secrets read too)"))?
+            .is_some();
+    }
+    if !has_key {
+        return Err(
+            "Add your AI key to GitHub first: your fork > Settings > Secrets and \
+             variables > Actions > New repository secret, named GROQ_API_KEY (or \
+             ANTHROPIC_API_KEY)"
+                .into(),
+        );
     }
     let base = api
         .get(&format!("/git/ref/heads/{}", plan::BASE_BRANCH))?

@@ -145,7 +145,10 @@ const SHADE: u32 = 0x2a1a4c;
 const STAR: u32 = 0xf4f2ff;
 
 const STAR_LEVELS: [f32; 4] = [0.95, 0.6, 0.3, 0.6];
-const STAR_PERIODS: [f32; 4] = [4., 6., 8., 10.];
+/// Twice the desktop launcher's pace, and the clouds three times: on a phone held at arm's
+/// length its texel-a-second drift reads as a still picture.
+const STAR_PERIODS: [f32; 4] = [2., 3., 4., 5.];
+const CLOUD_PACE: f32 = 3.;
 
 /// `0xRRGGBB` at `alpha` (0..1) in the UI's colour format.
 pub fn rgb(c: u32, alpha: f32) -> u32 {
@@ -277,7 +280,7 @@ pub fn draw(ui: &mut Ui, w: f32, h: f32, t: f32) {
     }
     for (depth, layer) in CLOUDS.iter().enumerate() {
         let strip = layer.period as f32 * TEXEL;
-        let shift = (t * layer.speed).floor() * TEXEL % strip;
+        let shift = (t * layer.speed * CLOUD_PACE).floor() * TEXEL % strip;
         let top = (h * layer.top / TEXEL).round() * TEXEL;
         let mut x = -shift;
         while x < w {

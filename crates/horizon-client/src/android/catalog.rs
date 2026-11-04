@@ -153,15 +153,18 @@ pub enum Page {
     Packs,
     Shaders,
     Installed,
+    /// The converters: a Java mod on the phone, or a .jar / .hnmod with AI on GitHub.
+    Convert,
     Settings,
 }
 impl Page {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Play,
         Self::Mods,
         Self::Packs,
         Self::Shaders,
         Self::Installed,
+        Self::Convert,
         Self::Settings,
     ];
     pub fn name(self) -> &'static str {
@@ -171,6 +174,7 @@ impl Page {
             Self::Packs => "Packs",
             Self::Shaders => "Shaders",
             Self::Installed => "Installed",
+            Self::Convert => "Convert",
             Self::Settings => "Settings",
         }
     }
