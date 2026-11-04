@@ -22,6 +22,11 @@ The report contains:
 - Streaming queues, dirty light, pending mesh uploads and cumulative upload bytes.
 - Terrain draw calls, resident sections, GPU allocation counters where available,
   resolution, render/simulation distances, presentation mode and effective FPS cap.
+- What the GPU was given in the last frame: terrain quads submitted
+  (`terrain_quads`), the world's entity, block entity and particle quads
+  (`world_quads`), and the sections fog culling left out (`fog_culled_sections`).
+- With **GPU profile** on, each shader pack pass's median GPU time
+  (`shader_pass_ms`), as the F3 overlay shows them.
 - Focus/pause/idle state, underwater state and entity/particle counts.
 - Camera yaw/pitch and player velocity for distinguishing a changed view or movement
   from a stationary scene. Player coordinates remain excluded.
@@ -44,6 +49,29 @@ chat, server addresses, world names, seeds or player coordinates.
 Developer regression check: `python tools/test_android_performance.py`. It runs
 the actual recorder/statistics/timing code in a host harness and substitutes only
 Android publication. The isolated storage probe tests provider access separately.
+
+## What can be timed on a phone
+
+A phone's GPU renders each render pass tile by tile, so timestamps between the
+draws of one pass don't say what those draws cost. Horizon's world is one pass:
+terrain, entities, block entities and translucent geometry together. A recording
+therefore splits the frame where the GPU's own boundaries are: uploads, the world
+pass and post/HUD (`gpu_stage_distributions`), and each shader pack pass. Within the
+world, `terrain_quads` and `world_quads` say what the GPU was given; to see what
+entities cost, compare two recordings of the same scene with Entity Culling on and
+off. The CPU's stages (`timings`, role `render`) and the workers' meshing and
+lighting (`timings`, role `worker`: `mesh_section`, `light_chunk`) are timed
+directly.
+
+## Fog culling
+
+Sections lying wholly past a fog's end are skipped where nothing but the fog's
+colour would be behind them: the Nether's fog (it ends at 96 blocks), lava, powder
+snow, blindness and darkness, where no sky draws and the world clears to the fog's
+colour. A fully fogged fragment is the fog's colour alone, so the picture is the
+same. Off with shader packs, HDR, the water mirror and clouds. On by default
+(`horizon-graphics.txt` `fogCulling`); Video Settings+ and the Extras API
+(`set_option` `fog_culling`) switch it.
 
 ## Vulkan terrain validation
 

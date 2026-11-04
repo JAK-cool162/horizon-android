@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "extras_api";
 pub const NAME: &str = "Extras API";
-pub const VERSION: &str = "3.1.0";
+pub const VERSION: &str = "3.2.0";
 pub const DESCRIPTION: &str = "Gives sandboxed mods the API extras: events (joins, deaths, kills, drops), cancellable callbacks (block breaks and uses, attacks, item pickups, commands, explosions), player helpers (action bar, sidebar, tab list, nicknames, experience), vanilla commands as the server's console, and the video options and shader pack. Mods using it can do what a server operator can, and change your video settings.";
 /// The API's name and version, as mods ask for them.
 pub const API: &str = "extras";
@@ -130,6 +130,9 @@ fn options(s: &horizon_client::settings::Settings) -> Value {
         "fov": s.fov,
         "view_bobbing": s.view_bobbing,
         "shader_pack": s.horizon.shader_pack,
+        "cave_culling": s.horizon.cave_culling,
+        "entity_culling": s.horizon.entity_culling,
+        "fog_culling": s.horizon.fog_culling,
     })
 }
 
@@ -186,6 +189,19 @@ fn set_option(game: &mut crate::game::Game<'_>, args: &Value) -> Result<String, 
         }
         "view_bobbing" => {
             s.view_bobbing = flag(value)?;
+            custom = false;
+        }
+        // Horizon's culling (Video Settings > Horizon's, not vanilla's): the preset stays.
+        "cave_culling" => {
+            s.horizon.cave_culling = flag(value)?;
+            custom = false;
+        }
+        "entity_culling" => {
+            s.horizon.entity_culling = flag(value)?;
+            custom = false;
+        }
+        "fog_culling" => {
+            s.horizon.fog_culling = flag(value)?;
             custom = false;
         }
         "shader_pack" => {

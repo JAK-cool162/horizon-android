@@ -15139,6 +15139,7 @@ impl Game<'_> {
                 .map(|r| [r.u0, r.v0, r.u1, r.v1]),
             environment_fog: (self.dim == Dim::Nether).then_some((sky.fog_start, sky.fog_end)),
             cave_culling,
+            fog_culling: self.settings.horizon.fog_culling,
             water_fog,
             fog: Some(self.frame_fog(camera, &sky, biome, water_fog)),
             dark_disc: self.dark_disc(camera),
@@ -15237,6 +15238,11 @@ impl Game<'_> {
         };
         let result = match self.renderer.as_mut() {
             Some(renderer) => {
+                #[cfg(target_os = "android")]
+                renderer.set_pass_timing(
+                    self.debug || crate::device_runtime::preferences().gpu_profile,
+                );
+                #[cfg(not(target_os = "android"))]
                 renderer.set_pass_timing(self.debug);
                 horizon_client::spans::time("renderer", || renderer.render(&frame))
             }
@@ -19628,6 +19634,7 @@ pub(crate) fn loading_frame(hud: &HudBatch) -> Frame<'_> {
         underwater: false,
         water_plane: None,
         cave_culling: false,
+        fog_culling: false,
         title: true,
         sky_blocked: false,
         skybox: false,

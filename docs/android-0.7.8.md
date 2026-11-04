@@ -89,6 +89,30 @@ and the native mods' checks. A content mod can carry a GUI theme
 (`assets/<id>/horizon/gui_theme.json`, [mods.md](mods.md#gui-themes)): a gradient the GUI's grey
 pixels take, and a colour for container labels.
 
+## Performance: Sodium's techniques
+
+Of Sodium's techniques, Horizon already had: meshing and lighting on worker threads,
+block-face culling (a section's faces are grouped by direction and the groups facing away
+from the camera aren't drawn), a compact 24-byte section vertex (vanilla's is 28), GPU
+batching (multi-draw), cave and GPU occlusion culling, entity and block entity culling
+(the Entity Culling setting), incremental translucent sorting (a section is sorted again
+only when the camera enters a new block or crosses its planes, nearby ones and a rotating
+eighth a frame) and distant terrain (LOD).
+
+New: **fog culling** ([android-performance.md](android-performance.md#fog-culling)), on by
+default because the picture is the same. In a Nether cavern at render distance 12 on the
+desktop (software Vulkan, so desktop numbers, not a phone's): 907 sections and 273,719
+terrain quads drawn without it, 252 and 67,605 with it; 4.8 FPS before, 12.6 after; the
+screenshots of both differ in no pixel. Nothing changes where fog culling doesn't apply
+(the Overworld above water).
+
+Performance recordings now say what the GPU was given (`terrain_quads`, `world_quads`,
+`fog_culled_sections`) and, with GPU profile on, each shader pack pass's time.
+
+Not done, and why: a 20-byte vertex would store positions in fixed point, which moves offset
+plants and rotated model faces by a fraction of a pixel (not the same picture), to save
+a sixth of the vertex bytes.
+
 ## GIF backgrounds behind screens
 
 A resource pack can put an animated GIF behind screens, a Horizon feature off unless a pack

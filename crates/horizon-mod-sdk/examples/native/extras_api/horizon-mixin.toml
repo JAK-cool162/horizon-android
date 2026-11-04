@@ -1,6 +1,6 @@
 [mod]
 id = "extras_api"
-version = "3.1.0"
+version = "3.2.0"
 priority = 100
 
 # The Extras API: an API of this native mod's own for sandboxed .hmod mods with capability

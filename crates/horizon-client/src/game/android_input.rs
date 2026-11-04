@@ -587,6 +587,10 @@ impl Game<'_> {
                 "gpu_stages":r.gpu_stage_times().into_iter().map(|(stage, median_ms, max_ms, samples)|
                     serde_json::json!({"stage":stage,"median_ms":median_ms,"max_ms":max_ms,"samples":samples})).collect::<Vec<_>>(),
                 "draw_calls":r.section_draw_calls,"drawn_sections":r.drawn_sections,
+                "fog_culled_sections":r.fog_culled,"terrain_quads":r.terrain_quads,
+                "world_quads":r.world_quads,
+                "shader_pass_ms":r.shader_pass_times().into_iter().map(|(pass, ms)|
+                    serde_json::json!({"pass":pass,"median_ms":ms})).collect::<Vec<_>>(),
                 "resident_sections":r.resident_sections(),"uploaded_bytes_total":r.uploaded_bytes,
                 "arena_bytes":arena,"section_vertex_bytes":vertices,
                 "gpu_allocated_bytes":memory.as_ref().map(|m|m.total_allocated_bytes),

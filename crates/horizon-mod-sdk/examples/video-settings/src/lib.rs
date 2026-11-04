@@ -118,6 +118,28 @@ const CHOICES: &[Choice] = &[
     },
 ];
 
+/// Horizon's culling, Sodium's kind: less drawn, the same picture (Extras API 3.2). Fog culling
+/// skips what the Nether's fog, lava, powder snow, blindness or darkness hide entirely; entity
+/// culling skips entities and block entities behind opaque blocks; cave culling skips sections
+/// no open face leads to (vanilla's occlusion graph).
+const PERFORMANCE: &[Choice] = &[
+    Choice {
+        name: "fog_culling",
+        label: "Fog Culling",
+        values: &[("false", "Off"), ("true", "On")],
+    },
+    Choice {
+        name: "entity_culling",
+        label: "Entity Culling",
+        values: &[("false", "Off"), ("true", "On")],
+    },
+    Choice {
+        name: "cave_culling",
+        label: "Cave Culling",
+        values: &[("false", "Off"), ("true", "On")],
+    },
+];
+
 /// The one-tap presets: their options in order (the graphics preset first, as it sets others).
 const PRESETS: [(&str, &[(&str, &str)]); 3] = [
     (
@@ -157,10 +179,11 @@ const PRESETS: [(&str, &[(&str, &str)]); 3] = [
     ),
 ];
 
-/// Widget ids: presets from 10, choices from 100, the shader pack 200.
+/// Widget ids: presets from 10, choices from 100, the shader pack 200, performance from 300.
 const PRESET_ID: u32 = 10;
 const CHOICE_ID: u32 = 100;
 const SHADER_ID: u32 = 200;
+const PERFORMANCE_ID: u32 = 300;
 
 /// The value after `current` in `choice`, as JSON (the first when `current` is none of them).
 fn next(choice: &Choice, current: &Value) -> Value {
@@ -253,6 +276,21 @@ impl VideoSettings {
             .map_or(pack, |(_, t)| t.as_str());
         let shown = if pack.is_empty() { "Off" } else { title };
         widgets.push(button(SHADER_ID, format!("Shader Pack: {shown}")));
+        // An Extras API before 3.2 doesn't answer these: no rows for them.
+        let performance: Vec<(usize, &Choice)> = PERFORMANCE
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !options[c.name].is_null())
+            .collect();
+        if !performance.is_empty() {
+            widgets.push(text(4, "Performance (same picture)", 0xFFFF55));
+            for (i, choice) in performance {
+                widgets.push(button(
+                    PERFORMANCE_ID + i as u32,
+                    label(choice, &options[choice.name]),
+                ));
+            }
+        }
         if let Some(error) = &self.error {
             widgets.push(text(3, error, 0xFF5555));
         }
@@ -310,7 +348,10 @@ impl Mod for VideoSettings {
             for args in preset_calls((id - PRESET_ID) as usize) {
                 self.set(args);
             }
-        } else if let Some(choice) = CHOICES.get(id.wrapping_sub(CHOICE_ID) as usize) {
+        } else if let Some(choice) = CHOICES
+            .get(id.wrapping_sub(CHOICE_ID) as usize)
+            .or_else(|| PERFORMANCE.get(id.wrapping_sub(PERFORMANCE_ID) as usize))
+        {
             let value = next(choice, &options[choice.name]);
             self.set(json!({"name": choice.name, "value": value}).to_string());
         } else if id == SHADER_ID {

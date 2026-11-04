@@ -363,6 +363,9 @@ pub struct Frame<'a> {
     /// Skip sections the camera cannot see through open faces (vanilla's
     /// occlusion graph; off in spectator-like views inside blocks).
     pub cave_culling: bool,
+    /// Skip sections lying wholly past a fog that leaves nothing but its colour, where nothing
+    /// but that colour is behind them (`fully_fogged`): the picture is the same.
+    pub fog_culling: bool,
     /// Title screen: only the dedicated panorama cube map and the HUD.
     pub title: bool,
     /// Lava, powder snow, blindness or darkness blocks the sky pass.
@@ -814,6 +817,13 @@ pub struct Renderer {
     /// worked), so frames configure it again first and skip until it takes.
     surface_unconfigured: bool,
     pub drawn_sections: usize,
+    /// Last frame's sections left out by fog culling (`Frame::fog_culling`).
+    pub fog_culled: usize,
+    /// Last frame's terrain quads submitted (solid and translucent, before the GPU's occlusion
+    /// test drops phase 2's hidden ones), and the world's entity, block entity and particle
+    /// quads: what the GPU is given, for performance recordings.
+    pub terrain_quads: u64,
+    pub world_quads: u32,
     /// Last frame's section draws (face ranges and translucent sections),
     /// and the draw calls the backend issued for them.
     pub section_draws: usize,
@@ -3724,6 +3734,9 @@ impl Renderer {
             acquire_validation_failures: 0,
             surface_unconfigured: false,
             drawn_sections: 0,
+            fog_culled: 0,
+            terrain_quads: 0,
+            world_quads: 0,
             section_draws: 0,
             section_draw_calls: 0,
             uploaded_bytes: 0,
@@ -5594,6 +5607,21 @@ impl Renderer {
             .iter()
             .map(|&((x, _, z), _)| (x, z))
             .collect();
+        // Fog culling, where it changes no pixel: a section wholly past the fog's end draws only
+        // the fog's colour (`terrain.wgsl`'s `apply_fog`, at full strength), and where neither
+        // a sky nor clouds draw, the world clears to that colour. Not with a shader pack (its
+        // own fog), HDR (terrain marks its emission), the water mirror or the title.
+        let fog_cull = (frame.fog_culling
+            && !frame.title
+            && fog_color[3] >= 1.0
+            && !(frame.end_sky && !frame.underwater && sky_open(frame))
+            && !(sky_open(frame) && (frame.skybox || frame.end_sky))
+            && frame.clouds.is_none()
+            && mirror.is_none()
+            && self.hdr.is_none()
+            && self.pack_post.is_none()
+            && self.native.is_none())
+        .then_some(fog);
         let mut visible = std::mem::take(&mut self.visible);
         visible.clear();
         crate::spans::time("visibility", || {
@@ -5609,6 +5637,13 @@ impl Renderer {
                 &mut visible,
             )
         });
+        if let Some(fog) = fog_cull {
+            let before = visible.len();
+            visible.retain(|v| !fully_fogged(v.origin, fog));
+            self.fog_culled = before - visible.len();
+        } else {
+            self.fog_culled = 0;
+        }
         let now = std::time::Instant::now();
         let mut visible_lods = std::mem::take(&mut self.visible_lods);
         visible_lods.clear();
@@ -6048,6 +6083,7 @@ impl Renderer {
         self.translucency_cursor += budget;
         let translucent_draws = self.draws.len() as u32 - solid_draws;
         self.section_draws = self.draws.len();
+        self.terrain_quads = self.draws.iter().map(|d| u64::from(d[0] / 6)).sum();
         // The shadow camera's sections after the camera's: quads that can face the light, then
         // translucent ones (in their last sorted order; depth decides there).
         let shadow_first = self.draws.len() as u32;
@@ -6258,6 +6294,7 @@ impl Renderer {
             + translucent_particle_quads
             + translucent_item_quads
             + oit_entity_quads;
+        self.world_quads = world_quads;
         // Where the tail of materials the classic and the improved passes
         // both draw ends: the shadows, particles and items count back from it.
         let base_quads = world_quads - oit_entity_quads;
@@ -8432,6 +8469,30 @@ fn projection_center(view_proj: Mat4) -> Option<Vec3> {
     let b = DVec3::new(rows[0].w, rows[1].w, rows[2].w);
     Some((a.inverse() * -b).as_vec3())
 }
+/// Whether every point of the section at the camera-relative `origin`, grown by a block (a
+/// model reaches that far out of its cell), is past the end of the fog `fog` (environmental
+/// start and end, spherical; render-distance start and end, cylindrical: `terrain.wgsl`'s
+/// `apply_fog`), where a fragment is the fog's colour alone. Half a block of margin covers the
+/// fragments' interpolated distances.
+fn fully_fogged(origin: [f32; 3], fog: [f32; 4]) -> bool {
+    let nearest = |o: f32| {
+        let (low, high) = (o - 1.0, o + 17.0);
+        if low > 0.0 {
+            low
+        } else if high < 0.0 {
+            -high
+        } else {
+            0.0
+        }
+    };
+    let [x, y, z] = origin.map(nearest);
+    let horizontal = (x * x + z * z).sqrt();
+    let spherical = (horizontal * horizontal + y * y).sqrt();
+    let cylindrical = horizontal.max(y);
+    // `linear_fog` is 1 from `end` on, but 0 up to `start` when a fog's start is past its end.
+    let past = |d: f32, start: f32, end: f32| d > start && d >= end + 0.5;
+    past(spherical, fog[0], fog[1]) || past(cylindrical, fog[2], fog[3])
+}
 /// Calls `draw(first, quads)` for each run of a mesh's solid quads that can
 /// face `eye` (`projection_center`), the mesh at the camera-relative
 /// `origin`; all of them when there is no eye.
@@ -8472,6 +8533,31 @@ fn frustum(m: Mat4) -> [Vec4; 6] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_sections_wholly_past_the_fog_are_fully_fogged() {
+        // The Nether's fog: 10 to 96 blocks, spherical; render distance 12 (192 blocks).
+        let nether = [10.0, 96.0, 168.0, 192.0];
+        // Straight ahead along x: its grown box starts at origin - 1.
+        assert!(super::fully_fogged([97.5, -8.0, -8.0], nether));
+        assert!(!super::fully_fogged([96.5, -8.0, -8.0], nether));
+        // Diagonal: (100, 0, 0) is past 96, but the box's nearest point is only 70.7 away.
+        assert!(!super::fully_fogged([51.0, -8.0, 51.0], nether));
+        assert!(super::fully_fogged([71.0, -8.0, 71.0], nether));
+        // The camera's own section never is.
+        assert!(!super::fully_fogged([-8.0, -8.0, -8.0], nether));
+        // Below the camera: spherical distance counts y as much as x.
+        assert!(super::fully_fogged([-8.0, -116.0, -8.0], nether));
+        // Render-distance fog, cylindrical: max(horizontal, vertical) past its end.
+        let overworld = [f32::MAX, f32::MAX, 180.0, 192.0];
+        assert!(super::fully_fogged([193.5, -8.0, -8.0], overworld));
+        assert!(!super::fully_fogged([150.0, -8.0, -8.0], overworld));
+        // A fog whose start is past its end leaves the near side clear.
+        assert!(!super::fully_fogged(
+            [100.0, -8.0, -8.0],
+            [1e9, 50.0, f32::MAX, f32::MAX]
+        ));
+    }
+
     fn adapter(device_type: wgpu::DeviceType) -> wgpu::AdapterInfo {
         wgpu::AdapterInfo {
             name: "test adapter".into(),

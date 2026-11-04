@@ -715,6 +715,15 @@ impl Game<'_> {
                 self.apply_settings();
                 ok()
             }
+            // Horizon's fog culling (`horizon-graphics.txt` `fogCulling`), for A/B checks.
+            "fog-culling" => {
+                self.settings.horizon.fog_culling = match arg(1)? {
+                    "on" | "true" => true,
+                    "off" | "false" => false,
+                    other => return Err(format!("fog-culling on|off, not {other}").into()),
+                };
+                ok()
+            }
             "lod-distance" => {
                 let n: u32 = arg(1)?.parse()?;
                 if n > horizon_client::lod::MAX_CHUNKS {
@@ -1192,6 +1201,9 @@ impl Game<'_> {
                 "size": [r.config.width, r.config.height],
                 "present_mode": format!("{:?}", r.config.present_mode),
                 "drawn_sections": r.drawn_sections,
+                "fog_culled_sections": r.fog_culled,
+                "terrain_quads": r.terrain_quads,
+                "world_quads": r.world_quads,
                 "section_draws": r.section_draws,
                 "section_draw_calls": r.section_draw_calls,
                 "terrain_pass_draws": r.terrain_pass_draws,
