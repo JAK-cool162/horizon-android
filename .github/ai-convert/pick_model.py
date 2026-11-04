@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""The Groq model to port with: the one asked for (argument 1, the repository variable AI_MODEL,
-with or without its `groq/` prefix) when the key can use it, else the best coding model of
-Groq's list on stdin (GET /openai/v1/models) by the order below. Groq's lineup changes, so the
-list is read at run time instead of naming one model.
+"""The model to port with: the one asked for (the repository variable AI_MODEL, with or without
+its provider prefix) when the key can use it, else the best of the provider's list on stdin.
+Providers retire models (Groq dropped Kimi K2; Gemini 2.5 Flash closed to new keys), so the list
+is read at run time instead of naming one model.
 
-    curl .../openai/v1/models | pick_model.py [wanted]
+    curl https://api.groq.com/openai/v1/models | pick_model.py [wanted]
+    curl https://generativelanguage.googleapis.com/v1beta/models | pick_model.py --gemini [wanted]
 """
 import json
+import re
 import sys
 
-# The player's pick (Qwen 3.8) first, then the strongest coding and long-context models.
+# Groq: the player's pick (Qwen 3.8) first, then the strongest coding and long-context models.
 PREFERRED = [
     'qwen/qwen3.8-27b',
     'openai/gpt-oss-120b',
@@ -21,22 +23,53 @@ PREFERRED = [
 ]
 
 
-def main() -> None:
-    wanted = (sys.argv[1] if len(sys.argv) > 1 else '').strip().removeprefix('groq/')
-    try:
-        listed = {m['id'] for m in json.load(sys.stdin).get('data', []) if m.get('active', True)}
-    except (ValueError, AttributeError, TypeError):
-        listed = set()
+def gemini(listing: dict, wanted: str) -> str:
+    """The newest Gemini Flash the key may call (Flash fits the free tier), else the newest Pro."""
+    names = {
+        m.get('name', '').removeprefix('models/')
+        for m in listing.get('models', [])
+        if 'generateContent' in m.get('supportedGenerationMethods', ['generateContent'])
+    }
+    if wanted and (not names or wanted in names):
+        return wanted
+    ranked = []
+    for name in names:
+        found = re.fullmatch(r'gemini-(\d+(?:\.\d+)?)-(flash|pro)(-preview(?:-[\w-]+)?)?', name)
+        if found:
+            version, kind, preview = float(found.group(1)), found.group(2), bool(found.group(3))
+            # Flash before Pro, stable before preview, then the newest.
+            ranked.append(((kind == 'flash', not preview, version), name))
+    if not ranked:
+        sys.exit('Gemini listed no Flash or Pro model this key can use: check GEMINI_API_KEY')
+    return max(ranked)[1]
+
+
+def groq(listing: dict, wanted: str) -> str:
+    listed = {m['id'] for m in listing.get('data', []) if m.get('active', True)}
     if wanted and (not listed or wanted in listed):
-        print(wanted)
-        return
+        return wanted
     for model in PREFERRED:
         if model in listed:
-            print(model)
-            return
+            return model
     if not listed:
         sys.exit('Groq listed no models: check GROQ_API_KEY')
-    print(sorted(listed)[0])
+    return sorted(listed)[0]
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    is_gemini = bool(args) and args[0] == '--gemini'
+    if is_gemini:
+        args = args[1:]
+    wanted = (args[0] if args else '').strip()
+    wanted = wanted.removeprefix('gemini/' if is_gemini else 'groq/')
+    try:
+        listing = json.load(sys.stdin)
+    except ValueError:
+        listing = {}
+    if not isinstance(listing, dict):
+        listing = {}
+    print(gemini(listing, wanted) if is_gemini else groq(listing, wanted))
 
 
 if __name__ == '__main__':

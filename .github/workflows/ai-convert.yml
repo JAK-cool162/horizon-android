@@ -5,7 +5,7 @@
 # The AI is the first of these repository secrets that is set (Settings > Secrets and variables >
 # Actions, or the launcher's Setup > AI key); each run is billed to that key:
 #   ANTHROPIC_API_KEY  Claude Code (anthropics/claude-code-action).
-#   GEMINI_API_KEY     Google's Gemini (repository variable AI_MODEL, default gemini-2.5-flash),
+#   GEMINI_API_KEY     Google's Gemini (repository variable AI_MODEL, else the newest Flash its key lists),
 #                      driven by aider (Apache-2.0); its free tier fits a conversion.
 #   GROQ_API_KEY       an open model on Groq (AI_MODEL, else the best its key lists: see
 #                      .github/ai-convert/pick_model.py), driven by aider. A conversion sends about
@@ -108,8 +108,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$AI" = gemini ]; then
-            name="${WANTED:-gemini-2.5-flash}"
-            model="gemini/${name#gemini/}"
+            # The newest Flash this key may call (Google retires models), unless AI_MODEL says.
+            model="gemini/$(curl -sS -H "x-goog-api-key: $GEMINI_API_KEY" \
+              "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" \
+              | python3 .github/ai-convert/pick_model.py --gemini "$WANTED")"
           else
             # The best coding model this key can use now (Groq's list changes), unless AI_MODEL says.
             model="groq/$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
