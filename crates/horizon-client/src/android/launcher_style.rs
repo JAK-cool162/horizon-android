@@ -122,19 +122,113 @@ pub fn glow(ui: &mut Ui, cx: f32, cy: f32, r: f32, color: u32) {
     }
 }
 
-/// The filled action's pill: a soft glow under a violet to orchid gradient.
+/// The launcher's animations: a clock for the slow ambient motion (glows drifting, the Launch
+/// button breathing), the page switch in progress and the last touch's ripple. The launcher draws
+/// at 60 frames a second only while [`Motion::busy`], and at 10 otherwise.
+pub struct Motion {
+    clock: std::time::Instant,
+    page: Option<(Page, std::time::Instant)>,
+    ripple: Option<([f32; 2], std::time::Instant)>,
+}
+impl Default for Motion {
+    fn default() -> Self {
+        Self {
+            clock: std::time::Instant::now(),
+            page: None,
+            ripple: None,
+        }
+    }
+}
+impl Motion {
+    /// How long a page switch and a ripple take, in seconds.
+    const PAGE: f32 = 0.3;
+    const RIPPLE: f32 = 0.45;
+    /// The page shown before `from` was left for another.
+    pub fn page_changed(&mut self, from: Page) {
+        self.page = Some((from, std::time::Instant::now()));
+    }
+    /// A touch at `at` (dp).
+    pub fn touched(&mut self, at: [f32; 2]) {
+        self.ripple = Some((at, std::time::Instant::now()));
+    }
+    /// Seconds since the launcher started: the ambient motion's clock.
+    pub fn time(&self) -> f32 {
+        self.clock.elapsed().as_secs_f32()
+    }
+    /// The page being left and how far the switch is, eased (0 just left, 1 done).
+    pub fn page_progress(&self) -> Option<(Page, f32)> {
+        let (from, at) = self.page?;
+        let t = at.elapsed().as_secs_f32() / Self::PAGE;
+        (t < 1.0).then(|| (from, ease_out(t)))
+    }
+    /// Whether something moves fast enough to need every frame.
+    pub fn busy(&self) -> bool {
+        self.page_progress().is_some()
+            || self
+                .ripple
+                .is_some_and(|(_, at)| at.elapsed().as_secs_f32() < Self::RIPPLE)
+    }
+    /// The ripple of the last touch, over everything: a glow that grows and fades.
+    pub fn draw_ripple(&self, ui: &mut Ui) {
+        let Some(([x, y], at)) = self.ripple else {
+            return;
+        };
+        let t = at.elapsed().as_secs_f32() / Self::RIPPLE;
+        if t >= 1.0 {
+            return;
+        }
+        let e = ease_out(t);
+        let a = ((1.0 - t) * 70.0) as u8;
+        glow(ui, x, y, 14.0 + 46.0 * e, alpha(color::ACCENT, a));
+    }
+    /// The page's entrance: a veil of the sky fading off it as it settles.
+    pub fn draw_page_veil(&self, ui: &mut Ui, rect: [f32; 4]) {
+        if let Some((_, p)) = self.page_progress() {
+            ui.rounded(
+                rect[0],
+                rect[1],
+                rect[2],
+                rect[3],
+                0.0,
+                alpha(color::BG, ((1.0 - p) * 230.0) as u8),
+            );
+        }
+    }
+    /// How far the page's content still sits to the right as it slides in (dp).
+    pub fn page_slide(&self) -> f32 {
+        self.page_progress().map_or(0.0, |(_, p)| (1.0 - p) * 28.0)
+    }
+}
+
+/// Cubic ease-out: fast start, gentle stop.
+fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
+/// The ambient clock of this frame (seconds), set by the launcher before it draws: the pieces
+/// that breathe or drift read it, so their callers need not pass it along.
+static AMBIENT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub fn set_ambient(seconds: f32) {
+    AMBIENT.store(seconds.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+fn ambient() -> f32 {
+    f32::from_bits(AMBIENT.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The filled action's pill: a soft glow, breathing slowly, under a violet to orchid gradient.
 pub fn action_pill(ui: &mut Ui, [x, y, w, h]: [f32; 4], r: f32) {
+    let breath = (ambient() * 2.2).sin() * 0.5 + 0.5;
     glow(
         ui,
         x + w / 2.0,
         y + h * 0.75,
-        (w * 0.6).max(h),
-        alpha(color::ACTION_RIGHT, 60),
+        (w * 0.6).max(h) * (0.92 + 0.12 * breath),
+        alpha(color::ACTION_RIGHT, (44.0 + 34.0 * breath) as u8),
     );
     rounded_across(ui, [x, y, w, h], r, color::ACTION_LEFT, color::ACTION_RIGHT);
 }
 
-/// The night sky behind every page: a dark gradient with violet, blue and pink glows.
+/// The night sky behind every page: a dark gradient with violet, blue and pink glows that drift.
 pub fn backdrop(ui: &mut Ui, w: f32, h: f32) {
     gradient(
         ui,
@@ -142,9 +236,29 @@ pub fn backdrop(ui: &mut Ui, w: f32, h: f32) {
         [color::BG, color::BG, color::BG_LOW, color::BG_LOW],
     );
     let big = w.max(h);
-    glow(ui, w * 0.78, -h * 0.05, big * 0.62, color::GLOW_VIOLET);
-    glow(ui, w * 0.05, h * 1.02, big * 0.5, color::GLOW_BLUE);
-    glow(ui, w * 0.98, h * 0.92, big * 0.34, color::GLOW_PINK);
+    let t = ambient();
+    let drift = |speed: f32, phase: f32| (t * speed + phase).sin();
+    glow(
+        ui,
+        w * (0.78 + 0.05 * drift(0.11, 0.0)),
+        h * (-0.05 + 0.04 * drift(0.07, 1.3)),
+        big * 0.62,
+        color::GLOW_VIOLET,
+    );
+    glow(
+        ui,
+        w * (0.05 + 0.05 * drift(0.09, 2.1)),
+        h * (1.02 + 0.03 * drift(0.13, 0.4)),
+        big * 0.5,
+        color::GLOW_BLUE,
+    );
+    glow(
+        ui,
+        w * (0.98 + 0.03 * drift(0.08, 4.0)),
+        h * (0.92 + 0.05 * drift(0.1, 2.7)),
+        big * (0.34 + 0.03 * drift(0.17, 0.9)),
+        color::GLOW_PINK,
+    );
 }
 
 /// A synthwave sun: the top half of a disc of radius `r` standing on `base`, shading from
@@ -379,18 +493,20 @@ pub fn nav_label(page: Page) -> &'static str {
     }
 }
 
-/// One navigation item: the indicator pill, the icon and the label, centred on `cx`.
+/// The selected item's indicator pill, centred on `cx` with its top at `y`.
+fn nav_indicator(ui: &mut Ui, cx: f32, y: f32) {
+    glow(ui, cx, y + 16.0, 44.0, alpha(color::DUSK_LEFT, 90));
+    rounded_across(
+        ui,
+        [cx - 28.0, y, 56.0, 32.0],
+        16.0,
+        color::ACCENT_CONTAINER,
+        color::SELECTED,
+    );
+}
+
+/// One navigation item: the icon and the label, centred on `cx`.
 fn nav_item(ui: &mut Ui, page: Page, cx: f32, y: f32, selected: bool) {
-    if selected {
-        glow(ui, cx, y + 16.0, 44.0, alpha(color::DUSK_LEFT, 90));
-        rounded_across(
-            ui,
-            [cx - 28.0, y, 56.0, 32.0],
-            16.0,
-            color::ACCENT_CONTAINER,
-            color::SELECTED,
-        );
-    }
     let ink = if selected { color::TEXT } else { color::MUTED };
     icon(ui, page, cx - 12.0, y + 4.0, 24.0, ink);
     let label = nav_label(page);
@@ -398,30 +514,57 @@ fn nav_item(ui: &mut Ui, page: Page, cx: f32, y: f32, selected: bool) {
     ui.text(Face::Medium, 12.0, cx - w / 2.0, y + 36.0, ink, label);
 }
 
-/// The navigation rail on the left (wide screens): the logo, then one item per page.
-/// Returns each page's touch rectangle.
-pub fn rail(ui: &mut Ui, current: Page, h: f32) -> Vec<([f32; 4], Page)> {
+/// Where the indicator sits along the navigation: at `current`'s place, or on its way there
+/// from the page left (`from`, with the switch's eased progress).
+fn indicator_at(current: Page, from: Option<(Page, f32)>, place: impl Fn(usize) -> f32) -> f32 {
+    let index = |p: Page| Page::ALL.iter().position(|q| *q == p).unwrap_or(0);
+    let to = place(index(current));
+    match from {
+        Some((page, p)) => place(index(page)) + (to - place(index(page))) * p,
+        None => to,
+    }
+}
+
+/// The navigation rail on the left (wide screens): the logo, then one item per page, the
+/// indicator sliding to the page chosen. Returns each page's touch rectangle.
+pub fn rail(
+    ui: &mut Ui,
+    current: Page,
+    from: Option<(Page, f32)>,
+    h: f32,
+) -> Vec<([f32; 4], Page)> {
     ui.rounded(0.0, 0.0, RAIL, h, 0.0, color::LOW);
     ui.rounded(RAIL - 1.0, 0.0, 1.0, h, 0.0, color::RIM);
     logo(ui, (RAIL - 48.0) / 2.0, 20.0, 48.0);
     let step = ((h - 104.0) / Page::ALL.len() as f32).clamp(56.0, 76.0);
+    let place = |i: usize| 100.0 + i as f32 * step;
+    nav_indicator(ui, RAIL / 2.0, indicator_at(current, from, place));
     Page::ALL
         .iter()
         .enumerate()
         .map(|(i, page)| {
-            let y = 100.0 + i as f32 * step;
+            let y = place(i);
             nav_item(ui, *page, RAIL / 2.0, y, *page == current);
             ([4.0, y - 4.0, RAIL - 8.0, 60.0], *page)
         })
         .collect()
 }
 
-/// The bottom navigation bar (portrait). Returns each page's touch rectangle.
-pub fn bar(ui: &mut Ui, current: Page, w: f32, h: f32) -> Vec<([f32; 4], Page)> {
+/// The bottom navigation bar (portrait), the indicator sliding to the page chosen. Returns each
+/// page's touch rectangle.
+pub fn bar(
+    ui: &mut Ui,
+    current: Page,
+    from: Option<(Page, f32)>,
+    w: f32,
+    h: f32,
+) -> Vec<([f32; 4], Page)> {
     let top = h - BAR;
     ui.rounded(0.0, top, w, BAR, 0.0, color::LOW);
     ui.rounded(0.0, top, w, 1.0, 0.0, color::RIM);
     let step = w / Page::ALL.len() as f32;
+    let place = |i: usize| i as f32 * step + step / 2.0;
+    nav_indicator(ui, indicator_at(current, from, place), top + 10.0);
     Page::ALL
         .iter()
         .enumerate()

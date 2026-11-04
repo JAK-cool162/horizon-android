@@ -212,7 +212,9 @@ fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result
     if request.kind == Kind::Mods && Kind::NativeMods.accepts(&name) {
         request.kind = Kind::NativeMods;
     }
-    if !content_files::plain_name(&name) || !request.kind.accepts(&name) {
+    // Mods' Import also takes a Java mod (.jar): it is converted into a content .hmod.
+    let jar = request.kind == Kind::Mods && name.to_ascii_lowercase().ends_with(".jar");
+    if !content_files::plain_name(&name) || !(jar || request.kind.accepts(&name)) {
         return Err("Selected file has the wrong extension for this folder".into());
     }
     let dir = request.home.join(request.kind.folder());
@@ -249,6 +251,16 @@ fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result
         })?;
         output.sync_all()?;
         drop(output);
+        let mut converted = None;
+        let name = if jar {
+            notice("Converting the Java mod...", false);
+            let done = crate::jar_convert::convert(&staged, &request.cache)?;
+            let name = format!("{}.hmod", done.id);
+            converted = Some(done.summary);
+            name
+        } else {
+            name
+        };
         notice("Checking archive...", false);
         let native_shader = content_files::validate(&staged, request.kind, &name, || {
             CANCEL.load(Ordering::Relaxed)
@@ -285,8 +297,9 @@ fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result
             );
         } else {
             std::fs::rename(&staged, &target)?;
-            imported(
-                format!(
+            let done = match &converted {
+                Some(summary) => format!("{summary} Enable it in game settings."),
+                None => format!(
                     "Imported {} into {}. {}",
                     target.file_name().unwrap_or_default().to_string_lossy(),
                     request.kind.label(),
@@ -296,8 +309,8 @@ fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result
                         "Enable it in game settings."
                     }
                 ),
-                request.kind,
-            );
+            };
+            imported(done, request.kind);
         }
         Ok(())
     })();

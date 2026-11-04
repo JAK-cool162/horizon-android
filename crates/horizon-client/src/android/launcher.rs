@@ -58,6 +58,8 @@ pub(super) struct Launcher {
     edit_controls: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    /// Page switches, touch ripples and the ambient clock (`launcher_style::Motion`).
+    motion: crate::launcher_style::Motion,
 }
 
 impl Launcher {
@@ -115,6 +117,7 @@ impl Launcher {
             edit_controls: false,
             focus: None,
             diagnostic_export: None,
+            motion: Default::default(),
         }
     }
 
@@ -631,8 +634,11 @@ impl ApplicationHandler for Launcher {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+        // Every frame while a page slides in or a ripple spreads; 10 a second otherwise, enough
+        // for the slow ambient motion.
+        let frame = if self.motion.busy() { 16 } else { 100 };
         events.set_control_flow(ControlFlow::WaitUntil(
-            Instant::now() + Duration::from_millis(100),
+            Instant::now() + Duration::from_millis(frame),
         ));
     }
     fn exiting(&mut self, events: &ActiveEventLoop) {

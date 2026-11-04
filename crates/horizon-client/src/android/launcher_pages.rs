@@ -520,13 +520,15 @@ impl Launcher {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
         let (sw, sh) = (ui.w, ui.h);
+        style::set_ambient(self.motion.time());
         style::backdrop(&mut ui, sw, sh);
         // Navigation: a rail on wide screens, a bottom bar in portrait.
         let wide = sw >= 700.0;
+        let from = self.motion.page_progress();
         let nav = if wide {
-            style::rail(&mut ui, self.catalog.page, sh)
+            style::rail(&mut ui, self.catalog.page, from, sh)
         } else {
-            style::bar(&mut ui, self.catalog.page, sw, sh)
+            style::bar(&mut ui, self.catalog.page, from, sw, sh)
         };
         self.targets.extend(
             nav.into_iter()
@@ -566,7 +568,9 @@ impl Launcher {
         // The pages lay out in their own panel: right of the rail, above the bar, and
         // `SHIFT` higher than under the old tab row the top bar replaces.
         const SHIFT: f32 = 48.0;
-        ui.origin = (left, -SHIFT);
+        // A page just chosen slides in from the right as it fades in (`Motion`).
+        let slide = self.motion.page_slide();
+        ui.origin = (left + slide, -SHIFT);
         ui.w = sw - left;
         ui.h = sh + SHIFT - if wide { 0.0 } else { style::BAR };
         let first_target = self.targets.len();
@@ -1291,6 +1295,24 @@ impl Launcher {
                 if !self.catalog.sections[section] {
                     continue;
                 }
+                // The converter: a Java mod's content (blocks, items, recipes, textures) as a
+                // Horizon content mod; Import takes the .jar and says what needs a port.
+                if kind == Kind::Mods {
+                    let y = top + offset - self.catalog.scroll;
+                    offset += 48.0;
+                    let rect = [32.0, y, w - 64.0, 40.0];
+                    self.list_targets.push((rect, Action::Import(kind)));
+                    if y + 40.0 > clip.2 && y < bottom {
+                        button(
+                            &mut ui,
+                            &mut self.targets,
+                            rect,
+                            "Convert a Java mod (.jar) into a Horizon mod",
+                            Action::Import(kind),
+                            false,
+                        );
+                    }
+                }
                 if kind == Kind::NativeMods {
                     use crate::native_build::Phase;
                     let y = top + offset - self.catalog.scroll;
@@ -1851,9 +1873,19 @@ impl Launcher {
             .iter_mut()
             .chain(self.list_targets.iter_mut())
         {
-            rect[0] += left;
+            rect[0] += left + slide;
             rect[1] -= SHIFT;
         }
+        // The page fades in under a veil of the sky (below the title row).
+        self.motion.draw_page_veil(
+            &mut ui,
+            [
+                left,
+                64.0,
+                sw - left,
+                if wide { sh } else { sh - style::BAR } - 64.0,
+            ],
+        );
         if let Some(view) = &mut self.list_view {
             view[0] -= SHIFT;
             view[1] -= SHIFT;
@@ -2008,6 +2040,8 @@ impl Launcher {
             );
         }
         crate::documents::draw_ui(&mut ui);
+        // A touch's ripple, over everything.
+        self.motion.draw_ripple(&mut ui);
         ui.finish();
 
         if !r.render(&game::loading_frame(&b))? && !b.patches.is_empty() {
@@ -2327,6 +2361,9 @@ impl Launcher {
                 if crate::platform::active() {
                     crate::platform::hide();
                 }
+                if self.catalog.page != page {
+                    self.motion.page_changed(self.catalog.page);
+                }
                 self.catalog.page = page;
                 self.catalog.scroll = 0.0;
                 self.error = None;
@@ -2502,6 +2539,11 @@ impl Launcher {
         match t.phase {
             TouchPhase::Started => {
                 self.drag = Some(super::gesture::Drag::new(t.location.x, t.location.y));
+                let density = self.ui_density() as f64;
+                self.motion.touched([
+                    (t.location.x / density) as f32,
+                    (t.location.y / density) as f32,
+                ]);
             }
             TouchPhase::Moved => {
                 let density = self.ui_density() as f64;
