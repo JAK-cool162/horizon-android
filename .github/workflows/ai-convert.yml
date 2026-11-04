@@ -108,34 +108,48 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$AI" = gemini ]; then
-            # The newest Flash this key may call (Google retires models), unless AI_MODEL says.
-            model="gemini/$(curl -sS -H "x-goog-api-key: $GEMINI_API_KEY" \
+            # Flash, Flash Lite, then Pro: the newest the key may call (Google retires models).
+            models=$(curl -sS -H "x-goog-api-key: $GEMINI_API_KEY" \
               "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" \
-              | python3 .github/ai-convert/pick_model.py --gemini "$WANTED")"
+              | python3 .github/ai-convert/pick_model.py --gemini "$WANTED" | sed 's|^|gemini/|')
           else
-            # The best coding model this key can use now (Groq's list changes), unless AI_MODEL says.
-            model="groq/$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
-              | python3 .github/ai-convert/pick_model.py "$WANTED")"
+            # The best coding models this key can use now (Groq's list changes).
+            models=$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
+              | python3 .github/ai-convert/pick_model.py "$WANTED" | sed 's|^|groq/|')
           fi
-          echo "Model: $model"
+          echo "Models, in turn: $(echo $models)"
           python3 -m venv /tmp/aider
           /tmp/aider/bin/pip install --quiet aider-chat
           cd "work/project/$MOD_ID"
           cp src/lib.rs /tmp/template-lib.rs
-          /tmp/aider/bin/aider --model "$model" --yes-always --no-git --no-auto-commits \
-            --no-show-model-warnings --no-check-update --analytics-disable --map-tokens 0 \
-            --read ../../context.md --read ../../hapi.md \
-            --read "$GITHUB_WORKSPACE/docs/api/mods-reference.md" \
-            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/src/lib.rs" \
-            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/right-harvest/src/lib.rs" \
-            --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/spawn-guard/src/lib.rs" \
-            --test-cmd "cargo horizon-mod build && cargo horizon-mod test" --auto-test \
-            --message-file "$GITHUB_WORKSPACE/.github/ai-convert/task.md" \
-            horizon-mod.toml src/lib.rs tests/hello.toml REPORT.md 2>&1 | tee /tmp/aider.log || true
+          : > /tmp/aider.log
+          first=true
+          for model in $models; do
+            # A model that was busy or over its per-minute quota: let the minute pass, try the next.
+            $first || { echo "Waiting a minute before $model..."; sleep 65; }
+            first=false
+            echo "=== $model" | tee -a /tmp/aider.log
+            /tmp/aider/bin/aider --model "$model" --yes-always --no-git --no-auto-commits \
+              --no-show-model-warnings --no-check-update --analytics-disable --map-tokens 0 \
+              --read ../../context.md --read ../../hapi.md \
+              --read "$GITHUB_WORKSPACE/docs/api/mods-reference.md" \
+              --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/src/lib.rs" \
+              --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/right-harvest/src/lib.rs" \
+              --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/spawn-guard/src/lib.rs" \
+              --test-cmd "cargo horizon-mod build && cargo horizon-mod test" --auto-test \
+              --message-file "$GITHUB_WORKSPACE/.github/ai-convert/task.md" \
+              horizon-mod.toml src/lib.rs tests/hello.toml REPORT.md 2>&1 | tee /tmp/attempt.log || true
+            cat /tmp/attempt.log >> /tmp/aider.log
+            # It wrote the port, or failed for a reason another model won't fix: stop here.
+            cmp -s src/lib.rs /tmp/template-lib.rs || break
+            grep -qi "high demand\|UNAVAILABLE\|overloaded\|RESOURCE_EXHAUSTED\|429\|rate.limit\|quota\|NotFoundError" /tmp/attempt.log || break
+          done
           if cmp -s src/lib.rs /tmp/template-lib.rs; then
             # The AI never wrote the port: say why in words the player can act on.
             if grep -q "tokens per minute\|TPM" /tmp/aider.log; then
               reason="The AI key's plan is too small for a conversion: it sends about 35,000 tokens at once and the plan allows fewer a minute (Groq's free tier allows 8,000). Use a free Gemini key (aistudio.google.com) or Groq's Dev tier."
+            elif grep -qi "high demand\|UNAVAILABLE\|overloaded" /tmp/aider.log; then
+              reason="The AI's servers were too busy (Google said: high demand), on every model tried. That is usually brief: try again in a few minutes."
             elif grep -qi "rate.limit\|quota\|429" /tmp/aider.log; then
               reason="The AI key hit its rate limit or quota: wait a little and try again, or check the key's plan."
             elif grep -qi "model_not_found\|does not exist\|NotFoundError" /tmp/aider.log; then

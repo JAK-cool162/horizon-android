@@ -23,37 +23,39 @@ PREFERRED = [
 ]
 
 
-def gemini(listing: dict, wanted: str) -> str:
-    """The newest Gemini Flash the key may call (Flash fits the free tier), else the newest Pro."""
+def gemini(listing: dict, wanted: str) -> list:
+    """Gemini models to try in turn: the newest Flash (it fits the free tier), the newest Flash
+    Lite (another free quota, often idle when Flash is busy), then the newest Pro."""
     names = {
         m.get('name', '').removeprefix('models/')
         for m in listing.get('models', [])
         if 'generateContent' in m.get('supportedGenerationMethods', ['generateContent'])
     }
     if wanted and (not names or wanted in names):
-        return wanted
-    ranked = []
+        return [wanted]
+    best = {}
     for name in names:
-        found = re.fullmatch(r'gemini-(\d+(?:\.\d+)?)-(flash|pro)(-preview(?:-[\w-]+)?)?', name)
+        found = re.fullmatch(r'gemini-(\d+(?:\.\d+)?)-(flash-lite|flash|pro)(-preview(?:-[\w-]+)?)?', name)
         if found:
-            version, kind, preview = float(found.group(1)), found.group(2), bool(found.group(3))
-            # Flash before Pro, stable before preview, then the newest.
-            ranked.append(((kind == 'flash', not preview, version), name))
-    if not ranked:
+            version, kind, stable = float(found.group(1)), found.group(2), not found.group(3)
+            key = (stable, version)
+            if kind not in best or key > best[kind][0]:
+                best[kind] = (key, name)
+    order = [best[k][1] for k in ('flash', 'flash-lite', 'pro') if k in best]
+    if not order:
         sys.exit('Gemini listed no Flash or Pro model this key can use: check GEMINI_API_KEY')
-    return max(ranked)[1]
+    return order
 
 
-def groq(listing: dict, wanted: str) -> str:
+def groq(listing: dict, wanted: str) -> list:
+    """Groq models to try in turn, by PREFERRED."""
     listed = {m['id'] for m in listing.get('data', []) if m.get('active', True)}
     if wanted and (not listed or wanted in listed):
-        return wanted
-    for model in PREFERRED:
-        if model in listed:
-            return model
-    if not listed:
+        return [wanted]
+    order = [model for model in PREFERRED if model in listed]
+    if not order and not listed:
         sys.exit('Groq listed no models: check GROQ_API_KEY')
-    return sorted(listed)[0]
+    return order or sorted(listed)[:1]
 
 
 def main() -> None:
@@ -69,7 +71,8 @@ def main() -> None:
         listing = {}
     if not isinstance(listing, dict):
         listing = {}
-    print(gemini(listing, wanted) if is_gemini else groq(listing, wanted))
+    # One per line, the best first: the workflow moves on when one is busy or over its quota.
+    print('\n'.join((gemini(listing, wanted) if is_gemini else groq(listing, wanted))[:3]))
 
 
 if __name__ == '__main__':
