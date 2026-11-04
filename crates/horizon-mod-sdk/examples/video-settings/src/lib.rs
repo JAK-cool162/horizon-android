@@ -1,6 +1,6 @@
 //! Example Horizon client mod on the mod bridge: a Sodium-style video settings screen. The
-//! screen is this sandboxed mod's (capability `ui`); the Extras API native mod
-//! (`extras_api.hnmod`, version 3) reads and applies the window's options (`options`,
+//! screen is this sandboxed mod's (capability `ui`); Hapi, the Horizon API native mod
+//! (`hapi.hnmod`, version 3) reads and applies the window's options (`options`,
 //! `set_option`, `shader_packs`), since a sandboxed mod cannot change them itself.
 use horizon_mod_sdk::ui::{self, ButtonWidget, Screen, TextWidget, Widget};
 use horizon_mod_sdk::{Mod, Registration, bridge, export_mod};
@@ -118,7 +118,7 @@ const CHOICES: &[Choice] = &[
     },
 ];
 
-/// Horizon's culling, Sodium's kind: less drawn, the same picture (Extras API 3.2). Fog culling
+/// Horizon's culling, Sodium's kind: less drawn, the same picture (Hapi 3.2). Fog culling
 /// skips what the Nether's fog, lava, powder snow, blindness or darkness hide entirely; entity
 /// culling skips entities and block entities behind opaque blocks; cave culling skips sections
 /// no open face leads to (vanilla's occlusion graph). The overlay shows frame times and memory.
@@ -285,7 +285,7 @@ impl VideoSettings {
             .map_or(pack, |(_, t)| t.as_str());
         let shown = if pack.is_empty() { "Off" } else { title };
         widgets.push(button(SHADER_ID, format!("Shader Pack: {shown}")));
-        // An Extras API before 3.2 doesn't answer these: no rows for them.
+        // An Hapi before 3.2 doesn't answer these: no rows for them.
         let performance: Vec<(usize, &Choice)> = PERFORMANCE
             .iter()
             .enumerate()

@@ -1,5 +1,5 @@
-//! Example Horizon server mod on the mod bridge's asks: the Extras API native mod
-//! (`extras_api.hnmod`, version 2) asks it before a block is broken or used and before an
+//! Example Horizon server mod on the mod bridge's asks: Hapi, the Horizon API native mod
+//! (`hapi.hnmod`, version 2) asks it before a block is broken or used and before an
 //! explosion, and it answers `cancel` near the Overworld's 0, 0. Operators (level 2 and up)
 //! build there as usual.
 use horizon_mod_sdk::bridge;
@@ -12,7 +12,7 @@ const ASKS: &str = r#"["break_block","use_block","explosion"]"#;
 /// How far from 0, 0 the area reaches, in blocks.
 const RADIUS: f64 = 16.0;
 
-/// Whether the Extras API took the subscription; until then (the player hasn't allowed
+/// Whether the Hapi took the subscription; until then (the player hasn't allowed
 /// "control" yet) it is asked again every 100 ticks.
 #[derive(Default)]
 struct SpawnGuard {
@@ -46,7 +46,7 @@ impl ServerMod for SpawnGuard {
     fn init() -> Result<(Self, Registration), String> {
         if bridge::version(API).is_none_or(|v| v < 2) {
             horizon_mod_sdk::warn(
-                "Spawn Guard needs the Extras API 2 native mod (extras_api.hnmod)",
+                "Spawn Guard needs Hapi 2, the Horizon API native mod (hapi.hnmod)",
             );
         } else {
             bridge::call(API, "subscribe", ASKS)?;
@@ -66,7 +66,7 @@ impl ServerMod for SpawnGuard {
         }
         match answer {
             Ok(_) => self.subscribed = true,
-            // Not allowed yet (Options > Mods > Extras API > Settings): said once.
+            // Not allowed yet (Options > Mods > Hapi > Settings): said once.
             Err(why) if !self.warned => {
                 self.warned = true;
                 horizon_mod_sdk::warn(&format!("Spawn Guard: {why}"));

@@ -1,5 +1,5 @@
 //! Example Horizon server mod on the mod bridge (capability `bridge`, API level 9): a sandboxed
-//! `.hmod` using an API that a native mod adds. The Extras API native mod (`extras_api.hnmod`)
+//! `.hmod` using an API that a native mod adds. Hapi, the Horizon API native mod (`hapi.hnmod`),
 //! serves `extras`: `command` runs a vanilla command as the server's console, and it publishes the
 //! server's `tps` and `mspt`. This mod gives each new player a starter kit with it, and adds `/tps`.
 use horizon_mod_sdk::bridge;
@@ -65,7 +65,7 @@ impl ServerMod for WelcomeKit {
         if bridge::version(API).is_none_or(|v| v < VERSION) {
             players::tell(
                 &player.id,
-                "No starter kit: this server needs the Extras API native mod (extras_api.hnmod)",
+                "No starter kit: this server needs Hapi, the Horizon API native mod (hapi.hnmod)",
             );
             return;
         }
@@ -120,7 +120,7 @@ impl ServerMod for WelcomeKit {
     ) -> Result<Option<String>, String> {
         match (bridge::get(API, "tps"), bridge::get(API, "mspt")) {
             (Some(tps), Some(mspt)) => Ok(Some(format!("{tps} TPS, {mspt} ms per tick"))),
-            _ => Err("Install the Extras API native mod (extras_api.hnmod) for /tps".into()),
+            _ => Err("Install Hapi, the Horizon API native mod (hapi.hnmod) for /tps".into()),
         }
     }
 }
