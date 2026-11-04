@@ -464,6 +464,304 @@ fn follow(api: &Api, game: &Path, record: &Record, set: &dyn Fn(String)) -> Resu
     Ok(())
 }
 
+/// The AI conversion (`.github/workflows/ai-convert.yml`): its workflow, the branch the launcher
+/// uploads the mod to, the artifact it answers with and the secret it needs.
+const CONVERT_WORKFLOW: &str = "ai-convert.yml";
+const CONVERT_BRANCH: &str = "ai-convert";
+const CONVERT_ARTIFACT: &str = "converted-hmod";
+const AI_SECRET: &str = "ANTHROPIC_API_KEY";
+const MAX_CONVERTED: u64 = 64 << 20;
+
+/// A Java mod (.jar) or native mod (.hnmod) rewritten as a sandboxed .hmod by Claude Code on the
+/// player's GitHub fork: this uploads it, starts the workflow, follows it and installs the .hmod
+/// it answers with in the profile's mods, keeping its REPORT.md for the status line.
+#[derive(Default)]
+pub struct AiConvert {
+    shared: Arc<Mutex<Shared>>,
+    report: Arc<Mutex<Option<String>>>,
+}
+impl AiConvert {
+    pub fn phase(&self) -> Phase {
+        self.shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .phase
+            .clone()
+    }
+    pub fn running(&self) -> bool {
+        self.shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .running
+    }
+    /// The workflow run's page, once it started.
+    pub fn url(&self) -> Option<String> {
+        self.shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .url
+            .clone()
+    }
+    /// The conversion's report, once, after it finished.
+    pub fn take_report(&self) -> Option<String> {
+        self.report.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+    /// Converts `file` (a staged .jar or .hnmod) into `mods` (the profile's .hmod folder).
+    pub fn start(&self, mods: PathBuf, repo: String, token: String, file: PathBuf) {
+        if self.running() {
+            return;
+        }
+        let api = Api::new(repo, token);
+        let shared = self.shared.clone();
+        let report = self.report.clone();
+        {
+            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.running = true;
+            s.url = None;
+            s.phase = Phase::Working("Contacting GitHub...".into());
+        }
+        std::thread::spawn(move || {
+            let set = |text: String| {
+                shared.lock().unwrap_or_else(|e| e.into_inner()).phase = Phase::Working(text)
+            };
+            let url = |u: String| shared.lock().unwrap_or_else(|e| e.into_inner()).url = Some(u);
+            let result = convert(&api, &mods, &file, &set, &url);
+            let _ = std::fs::remove_file(&file);
+            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.running = false;
+            s.phase = match result {
+                Ok(text) => {
+                    *report.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
+                    Phase::Ready
+                }
+                Err(e) => Phase::Failed(e),
+            };
+        });
+    }
+}
+
+/// Uploads, runs and installs one conversion; the answer is the report's text.
+fn convert(
+    api: &Api,
+    mods: &Path,
+    file: &Path,
+    set: &dyn Fn(String),
+    url: &dyn Fn(String),
+) -> Result<String, String> {
+    let name = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| content_name(n))
+        .ok_or("Choose a .jar or .hnmod file")?
+        .to_owned();
+    api.get("")?
+        .ok_or("The repository in Setup does not exist or the token cannot see it")?;
+    if api
+        .get(&format!("/actions/secrets/{AI_SECRET}"))
+        .map_err(|e| format!("{e} (the token needs Secrets read too)"))?
+        .is_none()
+    {
+        return Err(format!(
+            "Add your Anthropic API key to GitHub first: your fork > Settings > Secrets and \
+             variables > Actions > New repository secret, named {AI_SECRET}"
+        ));
+    }
+    let base = api
+        .get(&format!("/git/ref/heads/{}", plan::BASE_BRANCH))?
+        .and_then(|r| r["object"]["sha"].as_str().map(str::to_owned))
+        .ok_or("The repository has no android branch")?;
+    if api
+        .get(&format!("/git/ref/heads/{CONVERT_BRANCH}"))?
+        .is_none()
+    {
+        api.send(
+            "POST",
+            "/git/refs",
+            serde_json::json!({"ref": format!("refs/heads/{CONVERT_BRANCH}"), "sha": base}),
+        )?;
+    }
+    set(format!("Uploading {name}..."));
+    let path = format!("convert/{name}");
+    let bytes = std::fs::read(file).map_err(|e| format!("{name}: {e}"))?;
+    let existing = api
+        .get(&format!("/contents/{path}?ref={CONVERT_BRANCH}"))?
+        .and_then(|v| v["sha"].as_str().map(str::to_owned));
+    let mut body = serde_json::json!({
+        "message": format!("{name}, to convert into a .hmod"),
+        "content": plan::base64(&bytes),
+        "branch": CONVERT_BRANCH,
+    });
+    if let Some(sha) = existing {
+        body["sha"] = sha.into();
+    }
+    api.send("PUT", &format!("/contents/{path}"), body)?;
+    let request = request_tag("convert");
+    set("Starting the AI conversion on GitHub...".into());
+    let (run, link) = api.dispatch(
+        CONVERT_WORKFLOW,
+        serde_json::json!({"ref": plan::BASE_BRANCH, "inputs": {"file": path, "request": request}}),
+        &request,
+    )?;
+    url(link);
+    let started = Instant::now();
+    loop {
+        let state = api
+            .get(&format!("/actions/runs/{run}"))?
+            .ok_or("The conversion run is gone from GitHub")?;
+        match plan::run_state(&state) {
+            Ok(Some(())) => break,
+            Ok(None) => {
+                set(format!(
+                    "AI is converting {name} on GitHub ({} min; usually 5-20). You can close Horizon.",
+                    started.elapsed().as_secs() / 60
+                ));
+                std::thread::sleep(Duration::from_secs(15));
+            }
+            Err(e) => return Err(e.replace("The build", "The conversion")),
+        }
+    }
+    set("Downloading the converted mod...".into());
+    let artifacts = api
+        .get(&format!("/actions/runs/{run}/artifacts"))?
+        .unwrap_or_default();
+    let (link, size) = artifacts["artifacts"]
+        .as_array()
+        .and_then(|list| {
+            list.iter().find(|a| {
+                a["name"].as_str() == Some(CONVERT_ARTIFACT) && a["expired"].as_bool() != Some(true)
+            })
+        })
+        .map(|a| {
+            (
+                a["archive_download_url"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                a["size_in_bytes"].as_u64().unwrap_or(0),
+            )
+        })
+        .ok_or("The conversion gave nothing back: open its run for the log")?;
+    if size > MAX_CONVERTED {
+        return Err("The converted mod is too large".into());
+    }
+    std::fs::create_dir_all(mods).map_err(|e| e.to_string())?;
+    let archive = mods.join(".ai-convert.partial");
+    download(api, &link, &archive, MAX_CONVERTED)?;
+    let result = install_converted(&archive, mods);
+    let _ = std::fs::remove_file(&archive);
+    result
+}
+
+/// A plain .jar or .hnmod file name.
+fn content_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    (lower.ends_with(".jar") || lower.ends_with(".hnmod"))
+        && !name.contains(['/', '\\'])
+        && !name.starts_with('.')
+        && name.len() <= 120
+}
+
+/// GitHub's artifact at `link` into `out`: the archive link redirects to signed storage, which
+/// must not get the token.
+fn download(api: &Api, link: &str, out: &Path, max: u64) -> Result<(), String> {
+    let direct = ureq::AgentBuilder::new()
+        .https_only(true)
+        .redirects(0)
+        .timeout_connect(Duration::from_secs(20))
+        .build();
+    let first = api.request(&direct, "GET", link).call().map_err(failure)?;
+    let response = match first.header("Location") {
+        Some(location) if (300..400).contains(&first.status()) => {
+            let location = location.to_owned();
+            api.agent.get(&location).call().map_err(|e| e.to_string())?
+        }
+        _ => first,
+    };
+    let mut file = std::fs::File::create(out).map_err(|e| e.to_string())?;
+    let copied = std::io::copy(&mut response.into_reader().take(max + 1), &mut file)
+        .map_err(|e| e.to_string())?;
+    if copied > max {
+        let _ = std::fs::remove_file(out);
+        return Err("The download is too large".into());
+    }
+    Ok(())
+}
+
+/// The .hmod in the artifact, checked as an import is, into `mods` (beside one of the same id,
+/// never over it); the answer is the report.
+fn install_converted(archive: &Path, mods: &Path) -> Result<String, String> {
+    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let mut report = String::new();
+    let mut hmod = None;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        let name = entry.name().to_owned();
+        if name.contains('/') || !entry.is_file() {
+            continue;
+        }
+        if name == "REPORT.md" {
+            (&mut entry)
+                .take(64 << 10)
+                .read_to_string(&mut report)
+                .map_err(|e| e.to_string())?;
+        } else if name.ends_with(".hmod") && hmod.is_none() {
+            let mut bytes = Vec::new();
+            (&mut entry)
+                .take(MAX_CONVERTED)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            hmod = Some(bytes);
+        }
+    }
+    let report = report.trim().to_owned();
+    let Some(bytes) = hmod else {
+        return Err(if report.is_empty() {
+            "The AI could not convert this mod".into()
+        } else {
+            format!("Not converted: {}", first_paragraph(&report))
+        });
+    };
+    let staged = mods.join(".ai-convert.hmod.partial");
+    std::fs::write(&staged, &bytes).map_err(|e| e.to_string())?;
+    let id = match horizon_mods::Package::read(&staged) {
+        Ok(package) => package.manifest.id,
+        Err(e) => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(format!("The converted mod is not valid: {e}"));
+        }
+    };
+    let mut target = mods.join(format!("{id}.hmod"));
+    if target.exists() {
+        target = mods.join(format!("{id}-ai.hmod"));
+    }
+    std::fs::rename(&staged, &target).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Converted with AI: {}. {} Enable it in game settings.",
+        target.file_name().unwrap_or_default().to_string_lossy(),
+        first_paragraph(&report)
+    ))
+}
+
+/// The report's first paragraph without Markdown headings, for one status line.
+fn first_paragraph(report: &str) -> String {
+    let text: String = report
+        .split("\n\n")
+        .map(|p| {
+            p.lines()
+                .filter(|l| !l.trim_start().starts_with('#'))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .find(|p| !p.trim().is_empty())
+        .unwrap_or_default();
+    let text = text.trim();
+    match text.char_indices().nth(280) {
+        Some((at, _)) => format!("{}...", &text[..at]),
+        None => text.to_owned(),
+    }
+}
+
 fn extract_apk(archive: &Path, dir: &Path) -> Result<(), String> {
     let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;

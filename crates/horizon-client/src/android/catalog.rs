@@ -204,6 +204,8 @@ pub struct Catalog {
     searches: crate::search_queue::Queue<(Page, browser::SourceId, String, usize), Vec<Project>>,
     /// The in-app native build on the player's GitHub fork.
     pub native_build: crate::native_build::NativeBuild,
+    /// "Convert with AI" on the player's GitHub fork.
+    pub ai_convert: crate::native_build::AiConvert,
     /// A GitHub token being typed; saved to the Keystore-encrypted store on Enter, never here.
     pub github_token_text: String,
     pub github_token_saved: bool,
@@ -424,6 +426,7 @@ impl Catalog {
             search_worker: None,
             searches: crate::search_queue::Queue::new(),
             native_build: Default::default(),
+            ai_convert: Default::default(),
             github_token_text: String::new(),
             github_token_saved: false,
             native_restored: false,

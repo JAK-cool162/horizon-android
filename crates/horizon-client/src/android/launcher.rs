@@ -607,6 +607,20 @@ impl ApplicationHandler for Launcher {
         }
         self.catalog.poll(&self.home);
         if let Some(notice) = crate::documents::poll() {
+            // A mod picked for "Convert with AI": off to the player's GitHub fork.
+            if let Some(file) = &notice.ai {
+                let repo = crate::native_build::repository(&self.catalog.config.github_repo);
+                if let (Some(repo), Some(token)) = (repo, crate::native_build::token()) {
+                    let mods = self
+                        .catalog
+                        .config
+                        .game_home(&self.home)
+                        .join(horizon_client::content_files::Kind::Mods.folder());
+                    self.catalog
+                        .ai_convert
+                        .start(mods, repo, token, file.clone());
+                }
+            }
             self.catalog.status = notice.text;
             if notice.changed {
                 self.catalog.refresh(&self.home);
@@ -615,6 +629,10 @@ impl ApplicationHandler for Launcher {
         }
         for result in crate::gallery::poll() {
             self.catalog.status = result.unwrap_or_else(|e| format!("File export failed: {e}"));
+        }
+        if let Some(report) = self.catalog.ai_convert.take_report() {
+            self.catalog.status = report;
+            self.catalog.refresh(&self.home);
         }
         self.login.poll();
         if let Some(result) = self.session_worker.as_ref().and_then(|w| w.try_recv().ok()) {

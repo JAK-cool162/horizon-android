@@ -74,6 +74,10 @@ pub(super) enum Action {
     GpuProfile,
     BuildNative,
     ConfirmBuildNative,
+    /// "Convert with AI": pick a .jar or .hnmod for the GitHub conversion.
+    AiConvert,
+    /// The AI conversion's run on GitHub.
+    OpenAiRun,
     InstallNative,
     OpenNativeRun,
     OpenTokenPage,
@@ -1315,6 +1319,25 @@ impl Launcher {
                             false,
                         );
                     }
+                    // Convert with AI: the code too, by Claude Code on the player's fork.
+                    let y = top + offset - self.catalog.scroll;
+                    offset += 48.0;
+                    let rect = [32.0, y, w - 64.0, 40.0];
+                    let ai = &self.catalog.ai_convert;
+                    let (label, action) = match ai.phase() {
+                        crate::native_build::Phase::Working(text) => (text, Action::OpenAiRun),
+                        crate::native_build::Phase::Failed(e) if !ai.running() => {
+                            (format!("AI conversion failed: {e}"), Action::AiConvert)
+                        }
+                        _ => (
+                            "Convert with AI on GitHub (.jar or .hnmod, code included)".to_owned(),
+                            Action::AiConvert,
+                        ),
+                    };
+                    self.list_targets.push((rect, action));
+                    if y + 40.0 > clip.2 && y < bottom {
+                        button(&mut ui, &mut self.targets, rect, &label, action, false);
+                    }
                 }
                 if kind == Kind::NativeMods {
                     use crate::native_build::Phase;
@@ -2309,6 +2332,27 @@ impl Launcher {
                 } else {
                     "Could not open the installer: install the APK from Files > APK builds".into()
                 };
+            }
+            Some(Action::AiConvert) => {
+                crate::platform::hide();
+                let repo = crate::native_build::repository(&self.catalog.config.github_repo);
+                if repo.is_none() || crate::native_build::token().is_none() {
+                    self.catalog.status = "Convert with AI runs on your GitHub fork: set the \
+                        repository and GitHub token in Setup first (as for Build native)"
+                        .into();
+                } else if self.catalog.ai_convert.running() {
+                    self.catalog.status = "A conversion is already running".into();
+                } else {
+                    let home = self.catalog.config.game_home(&self.home);
+                    if let Err(e) = crate::documents::begin_ai(home) {
+                        self.catalog.status = e;
+                    }
+                }
+            }
+            Some(Action::OpenAiRun) => {
+                if let Some(url) = self.catalog.ai_convert.url() {
+                    crate::platform::open_url(&url);
+                }
             }
             Some(Action::OpenNativeRun) => {
                 if let Some(url) = self.catalog.native_build.url() {

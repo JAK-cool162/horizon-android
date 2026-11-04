@@ -23,6 +23,8 @@ struct Request {
     kind: Kind,
     home: PathBuf,
     cache: PathBuf,
+    /// For "Convert with AI": the file is staged for the conversion, not imported.
+    ai: bool,
 }
 struct Conflict {
     kind: Kind,
@@ -34,6 +36,8 @@ pub struct Notice {
     pub text: String,
     pub changed: bool,
     pub kind: Option<Kind>,
+    /// A mod staged for "Convert with AI", for the launcher to send to GitHub.
+    pub ai: Option<PathBuf>,
 }
 #[derive(Default)]
 struct State {
@@ -80,6 +84,7 @@ fn notice(text: impl Into<String>, changed: bool) {
         text,
         changed,
         kind: None,
+        ai: None,
     });
 }
 /// A message for the launcher's status line; `changed` reloads the installed lists.
@@ -94,6 +99,7 @@ fn imported(text: impl Into<String>, kind: Kind) {
         text,
         changed: true,
         kind: Some(kind),
+        ai: None,
     });
 }
 pub fn poll() -> Option<Notice> {
@@ -102,6 +108,7 @@ pub fn poll() -> Option<Notice> {
             text: "Content files changed. Reload packs to apply.".into(),
             changed: true,
             kind: None,
+            ai: None,
         });
     }
     STATE
@@ -111,6 +118,14 @@ pub fn poll() -> Option<Notice> {
         .take()
 }
 pub fn begin(kind: Kind, home: PathBuf) -> std::result::Result<(), String> {
+    begin_request(kind, home, false)
+}
+/// "Convert with AI": the player picks a Java mod (.jar) or a native mod (.hnmod), staged for
+/// the launcher to send to its GitHub conversion.
+pub fn begin_ai(home: PathBuf) -> std::result::Result<(), String> {
+    begin_request(Kind::Mods, home, true)
+}
+fn begin_request(kind: Kind, home: PathBuf, ai: bool) -> std::result::Result<(), String> {
     if busy() {
         return Err("Finish or cancel the current import first".into());
     }
@@ -119,12 +134,24 @@ pub fn begin(kind: Kind, home: PathBuf) -> std::result::Result<(), String> {
     let cache = crate::platform::cache_dir()
         .ok_or("Could not access the Android import cache")?
         .join("content-imports");
-    STATE.lock().unwrap_or_else(|e| e.into_inner()).request = Some(Request { kind, home, cache });
+    STATE.lock().unwrap_or_else(|e| e.into_inner()).request = Some(Request {
+        kind,
+        home,
+        cache,
+        ai,
+    });
     if !crate::native_ime::pick_document() {
         picker_failed("Android document picker is unavailable");
         return Err("Android document picker is unavailable".into());
     }
-    notice(format!("Choose a {} file", kind.label()), false);
+    if ai {
+        notice(
+            "Choose a Java mod (.jar) or a native mod (.hnmod) to convert",
+            false,
+        );
+    } else {
+        notice(format!("Choose a {} file", kind.label()), false);
+    }
     Ok(())
 }
 pub fn picker_failed(error: &str) {
@@ -182,7 +209,9 @@ pub extern "system" fn document_result(
         .spawn(move || {
             let result = (|| -> Result<()> {
                 let mut env = vm.attach_current_thread()?;
-                let fallback = if pending.kind == Kind::Mods {
+                let fallback = if pending.ai {
+                    "convert.jar"
+                } else if pending.kind == Kind::Mods {
                     "import.hmod"
                 } else if pending.kind == Kind::NativeMods {
                     "import.hnmod"
@@ -208,6 +237,9 @@ pub extern "system" fn document_result(
     }
 }
 fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result<()> {
+    if request.ai {
+        return stage_for_ai(request, input, name);
+    }
     // Mods' Import takes both kinds of mod: a native bundle goes to its own folder.
     if request.kind == Kind::Mods && Kind::NativeMods.accepts(&name) {
         request.kind = Kind::NativeMods;
@@ -318,6 +350,34 @@ fn stage(mut request: Request, mut input: std::fs::File, name: String) -> Result
         let _ = std::fs::remove_file(staged);
     }
     result
+}
+/// A mod for "Convert with AI", copied into the cache for the launcher to upload.
+fn stage_for_ai(request: Request, mut input: std::fs::File, name: String) -> Result<()> {
+    let lower = name.to_ascii_lowercase();
+    if !content_files::plain_name(&name) || !(lower.ends_with(".jar") || lower.ends_with(".hnmod"))
+    {
+        return Err("Choose a .jar or .hnmod file to convert".into());
+    }
+    let dir = request.cache.join("ai-convert");
+    std::fs::create_dir_all(&dir)?;
+    if std::fs::symlink_metadata(&dir)?.file_type().is_symlink() {
+        return Err("Refusing a redirected import cache".into());
+    }
+    let target = dir.join(&name);
+    let mut output = std::fs::File::create(&target)?;
+    content_files::copy_bounded(&mut input, &mut output, |bytes| {
+        notice(format!("Reading {name}: {} KiB", bytes / 1024), false);
+        !CANCEL.load(Ordering::Relaxed)
+    })?;
+    output.sync_all()?;
+    let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    s.notice = Some(Notice {
+        text: format!("Sending {name} to the AI conversion..."),
+        changed: false,
+        kind: None,
+        ai: Some(target),
+    });
+    Ok(())
 }
 pub fn resolve(choice: Choice) {
     let c = STATE

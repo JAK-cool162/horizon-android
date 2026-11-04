@@ -363,6 +363,23 @@ half in the player's window. The client half reaches its server half with `comma
 of the server half's own command. `cargo horizon-mod test` runs `tests/*.toml` against the client half
 and `tests/server/*.toml` against the server half.
 
+## Converting mods (Android launcher)
+
+Files > Mods has two converters:
+
+- **Convert a Java mod (.jar) into a Horizon mod** runs on the phone, offline: the jar's blocks,
+  items, recipes, loot tables, tags, worldgen, textures, models, sounds and languages become a
+  content `.hmod` (horizon-port-pack's carry step). Its Java code does not come over; the report
+  says so.
+- **Convert with AI on GitHub** takes a `.jar` or a native `.hnmod` and has Claude Code port the
+  mod, code included, into a `.hmod` on the player's fork (`.github/workflows/ai-convert.yml`): it
+  reads the mod (a jar decompiled with CFR), writes the port with the SDK, builds and tests it with
+  `cargo horizon-mod` until both pass, and answers with the `.hmod` and a `REPORT.md` of what it
+  left out. It uses the fork and token set up for Build native, and the repository secret
+  `ANTHROPIC_API_KEY` (each run is billed to that key). What the `.hmod` API can't do stays out.
+
+Converted mods are for personal use unless the original's licence allows sharing.
+
 ## Native mods
 
 Behaviour that needs code (a new key, a HUD, a tool that changes how mining works) is a native mod. It is a bundle of
