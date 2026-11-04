@@ -1,9 +1,9 @@
 [mod]
 id = "extras_api"
-version = "3.2.0"
+version = "3.3.0"
 priority = 100
 
-# The Extras API: an API of this native mod's own for sandboxed .hmod mods with capability
+# Hapi, the Horizon API (formerly the Extras API): an API of this native mod's own for sandboxed .hmod mods with capability
 # `bridge` (docs/android-native-mods.md, "The mod bridge"). It hooks only native hook points;
 # the bridge's have no hook API number yet, so `android_native_mods.py pack` pins it to the
 # commit it was packed on. What it serves: runtime.rs.

@@ -163,7 +163,7 @@ verified.
   sandbox script passed (4 steps), and Clippy with warnings denied passed for
   horizon-mods, the SDK and the example mods (wasm32) and cargo-horizon-mod.
 - The mod bridge: the mod sandbox suite (33 tests, including that `bridge` needs its
-  capability), welcome-kit's three sandbox scripts (with the Extras API, without it, and with
+  capability), welcome-kit's three sandbox scripts (with Hapi, without it, and with
   failing calls), ARM64 Clippy with warnings denied and a host check without code mods passed.
-  Asks: spawn-guard's sandbox scripts passed, and Extras API 2 with all its hooks applied
-  passed an ARM64 check. Not yet verified on a device: the Extras API in a running game.
+  Asks: spawn-guard's sandbox scripts passed, and Hapi 2 with all its hooks applied
+  passed an ARM64 check. Not yet verified on a device: Hapi in a running game.

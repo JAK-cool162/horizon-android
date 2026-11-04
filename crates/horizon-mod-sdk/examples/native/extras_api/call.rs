@@ -5,7 +5,7 @@ fn mod_extras_api_call(
     reply: &mut Option<Result<String, String>>,
 ) {
     use crate::game::mod_extras_api as m;
-    if call.api != m::API || reply.is_some() || !game.native_on(m::ID) {
+    if (call.api != m::API && call.api != m::OLD_API) || reply.is_some() || !game.native_on(m::ID) {
         return;
     }
     *reply = Some(m::serve(game, call));

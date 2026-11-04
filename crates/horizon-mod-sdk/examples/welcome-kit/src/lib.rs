@@ -8,7 +8,7 @@ use horizon_mod_sdk::storage;
 use std::collections::BTreeMap;
 
 /// The native API this mod uses, and the version it was written for.
-const API: &str = "extras";
+const API: &str = "hapi";
 const VERSION: u32 = 1;
 /// The starter kit: item and count.
 const KIT: [(&str, u32); 3] = [

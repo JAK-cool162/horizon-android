@@ -1,7 +1,7 @@
 id = "video_settings"
 name = "Video Settings+"
 version = "0.2.0"
-description = "A Sodium-style video settings screen: one-tap presets (Potato, Balanced, Quality), every option on one page, brightness up to fullbright, the shader pack, and Horizon's culling (fog, entities, caves: less drawn, the same picture). Open it from its Settings button in Options > Mods, or /video. The Extras API native mod (extras_api.hnmod, version 3) applies the changes."
+description = "A Sodium-style video settings screen: one-tap presets (Potato, Balanced, Quality), every option on one page, brightness up to fullbright, the shader pack, and Horizon's culling (fog, entities, caves: less drawn, the same picture). Open it from its Settings button in Options > Mods, or /video. The Hapi (Horizon API) native mod (extras_api.hnmod, version 3) applies the changes."
 authors = ["Horizon Android"]
 api = "0.1"
 side = "client"

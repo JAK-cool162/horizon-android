@@ -1,7 +1,7 @@
 id = "welcome_kit"
 name = "Welcome Kit"
 version = "0.1.0"
-description = "Gives each new player a starter kit and adds /tps, through the Extras API native mod (extras_api.hnmod). A sandboxed mod: it loads without rebuilding the game."
+description = "Gives each new player a starter kit and adds /tps, through Hapi, the Horizon API native mod (hapi.hnmod). A sandboxed mod: it loads without rebuilding the game."
 authors = ["Horizon Android"]
 api = "0.3"
 side = "server"

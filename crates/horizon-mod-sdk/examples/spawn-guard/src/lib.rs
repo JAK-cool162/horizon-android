@@ -6,7 +6,7 @@ use horizon_mod_sdk::bridge;
 use horizon_mod_sdk::server::{Registration, ServerMod};
 use serde_json::Value;
 
-const API: &str = "extras";
+const API: &str = "hapi";
 /// The asks it subscribes to.
 const ASKS: &str = r#"["break_block","use_block","explosion"]"#;
 /// How far from 0, 0 the area reaches, in blocks.

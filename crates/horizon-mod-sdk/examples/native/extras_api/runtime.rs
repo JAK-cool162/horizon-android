@@ -11,11 +11,13 @@ use serde_json::{Value, json};
 
 /// The mod's id (its settings folder), name and version.
 pub const ID: &str = "extras_api";
-pub const NAME: &str = "Extras API";
-pub const VERSION: &str = "3.2.0";
+pub const NAME: &str = "Hapi (Horizon API)";
+pub const VERSION: &str = "3.3.0";
 pub const DESCRIPTION: &str = "Gives sandboxed mods the API extras: events (joins, deaths, kills, drops), cancellable callbacks (block breaks and uses, attacks, item pickups, commands, explosions), player helpers (action bar, sidebar, tab list, nicknames, experience), vanilla commands as the server's console, and the video options and shader pack. Mods using it can do what a server operator can, and change your video settings.";
 /// The API's name and version, as mods ask for them.
-pub const API: &str = "extras";
+pub const API: &str = "hapi";
+/// The name it had as the Extras API: calls and `bridge.version` still answer to it.
+pub const OLD_API: &str = "extras";
 pub const API_VERSION: u32 = 3;
 
 /// What a mod hears with the next tick, after it happened.

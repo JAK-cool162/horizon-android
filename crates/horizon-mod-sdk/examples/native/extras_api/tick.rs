@@ -12,6 +12,8 @@ fn mod_extras_api_tick(
     let (rate, mspt) = game.native_tick_stats();
     let tps = on.then(|| format!("{:.1}", m::tps(rate, mspt)));
     let mspt = on.then(|| format!("{mspt:.1}"));
-    game.native_bridge_publish(m::API, "tps", tps.as_deref());
-    game.native_bridge_publish(m::API, "mspt", mspt.as_deref());
+    for api in [m::API, m::OLD_API] {
+        game.native_bridge_publish(api, "tps", tps.as_deref());
+        game.native_bridge_publish(api, "mspt", mspt.as_deref());
+    }
 }

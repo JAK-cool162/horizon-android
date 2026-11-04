@@ -6,7 +6,7 @@ use horizon_mod_sdk::ui::{self, ButtonWidget, Screen, TextWidget, Widget};
 use horizon_mod_sdk::{Mod, Registration, bridge, export_mod};
 use serde_json::{Value, json};
 
-const API: &str = "extras";
+const API: &str = "hapi";
 const VERSION: u32 = 3;
 
 /// An option the screen cycles: its name in the API, its label, and its values with their text.
@@ -259,7 +259,7 @@ impl VideoSettings {
         if bridge::version(API).is_none_or(|v| v < VERSION) {
             return vec![text(
                 1,
-                "Needs the Extras API 3 native mod (extras_api.hnmod)",
+                "Needs Hapi 3, the Horizon API native mod (hapi.hnmod)",
                 0xFF5555,
             )];
         }

@@ -54,8 +54,8 @@ Adding every function to the game's mod API by hand does not scale. With the **m
 name:
 
 ```
-.hmod (WebAssembly, loads at runtime)  --bridge::call("extras", "command", ...)-->
-    the game  -->  .hnmod (native, compiled in) serves "extras"  --reply-->  .hmod
+.hmod (WebAssembly, loads at runtime)  --bridge::call("hapi", "command", ...)-->
+    the game  -->  .hnmod (native, compiled in) serves "hapi"  --reply-->  .hmod
 ```
 
 - The `.hnmod` serves the API on two hook points: `native_bridge_apis` lists its name and
@@ -66,7 +66,7 @@ name:
   is happening. It runs as native code, so it can use anything the game can.
 - The `.hmod` declares capability `bridge` (experimental: `experimental = ["bridge"]`); the
   player sees "use the APIs your native mods (.hnmod) add to the game" before turning it on.
-  It checks `bridge::version("extras")` and calls `bridge::call(api, function, args)`.
+  It checks `bridge::version("hapi")` and calls `bridge::call(api, function, args)`.
   Arguments and answers are text in the form the API documents (JSON is common). The answer
   arrives as `bridge_reply(id, ...)` before the next tick's hooks, when the server's state is
   whole. Events arrive as `bridge_event`, and asks as `bridge_ask`, which returns `None` or an
@@ -80,9 +80,9 @@ The examples:
 
 | Example | What it is |
 |---|---|
-| [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `extras` ([below](#the-extras-api)). A mod using it can do what a server operator can. |
-| [`examples/welcome-kit`](../crates/horizon-mod-sdk/examples/welcome-kit) | A `.hmod` using it: each new player gets a starter kit once, and `/tps` shows the server's tick rate. Without the Extras API it tells the player which `.hnmod` to install. |
-| [`examples/video-settings`](../crates/horizon-mod-sdk/examples/video-settings) | A client `.hmod` with a Sodium-style Video Settings+ screen (its Settings button in Options > Mods, or `/video`): Potato, Balanced and Quality presets, every option on one page, brightness up to fullbright, and the shader pack. The Extras API applies each change: the screen is the sandboxed mod's, the work is the native mod's. |
+| [`examples/native/extras_api`](../crates/horizon-mod-sdk/examples/native/extras_api) | A `.hnmod` serving the API `hapi` ([below](#hapi-the-horizon-api)). A mod using it can do what a server operator can. |
+| [`examples/welcome-kit`](../crates/horizon-mod-sdk/examples/welcome-kit) | A `.hmod` using it: each new player gets a starter kit once, and `/tps` shows the server's tick rate. Without Hapi it tells the player which `.hnmod` to install. |
+| [`examples/video-settings`](../crates/horizon-mod-sdk/examples/video-settings) | A client `.hmod` with a Sodium-style Video Settings+ screen (its Settings button in Options > Mods, or `/video`): Potato, Balanced and Quality presets, every option on one page, brightness up to fullbright, and the shader pack. Hapi applies each change: the screen is the sandboxed mod's, the work is the native mod's. |
 | [`examples/spawn-guard`](../crates/horizon-mod-sdk/examples/spawn-guard) | A `.hmod` on its asks: blocks within 16 of the Overworld's 0, 0 can't be broken or used by players below operator level 2, and explosions there break nothing. |
 
 Package the native mod with `python3 tools/android_native_mods.py pack
@@ -98,7 +98,9 @@ was packed on instead of writing `hooks`, and the in-app build applies it with
 The bridge runs only in the game it is called in: a server mod's calls are answered by the
 server's native mods, a client mod's by the window's.
 
-### The Extras API
+### Hapi, the Horizon API
+
+Formerly the Extras API (renamed in 3.3.0). Its bridge name is `hapi`; calls, `bridge::version` and values still answer to `extras`, but events and asks come as `hapi`, so a mod that subscribes should use `hapi`. Its native mod id stays `extras_api` (its row and permissions carry over).
 
 Version 3 of `extras`. Server mods get the functions, events and asks below; client mods get
 the window's options. Players are named by UUID (as `players::online` gives them) or name;
@@ -122,14 +124,14 @@ arguments and answers are JSON, except `command`'s line.
 | `xp`, `levels` | `{"player", "points"}`, `{"player", "levels"}` | Experience (Mending first), or levels added or taken. |
 | `sleep_ignored` | `{"player", "ignored"}` | Whether the night waits for them to sleep. |
 
-Values (`bridge::get("extras", ...)`): `tps`, `mspt`.
+Values (`bridge::get("hapi", ...)`): `tps`, `mspt`.
 
-**Permissions (Extras API 3.1).** What changes the game needs the player's yes, per mod:
+**Permissions (Hapi 3.1).** What changes the game needs the player's yes, per mod:
 `commands` (`command`), `players` (`tell`, `actionbar`, `sidebar`, `tablist`, `nickname`,
 `xp`, `levels`, `sleep_ignored`), `control` (subscribing to an ask, which can cancel) and
 `settings` (`set_option`). Reading (`players`, `options`, `shader_packs`, values, events)
 needs none. Until the player allows it, the call answers `Err("<mod> needs your permission to
-...: allow it in Options > Mods > Extras API > Settings")`, and the operators (single
+...: allow it in Options > Mods > Hapi > Settings")`, and the operators (single
 player: its player) are told once. The Settings page lists every mod and group asked for,
 each a switch. The decisions are in the game folder's
 `horizon-mods/.horizon-mod-data/extras_api/permissions`, one `<mod> <group> allow|deny|ask`
