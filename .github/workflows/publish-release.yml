@@ -1,0 +1,30 @@
+# Publishes the files of a `release-assets/<tag>` branch as the GitHub release <tag>, then
+# deletes the branch. The branch holds only this file and `release/`: the release's source is
+# the commit in `release/TARGET`. A push of the branch runs it; so does running it by hand on
+# that branch (Actions > Publish release assets > Run workflow, branch release-assets/<tag>).
+name: Publish release assets
+on:
+  push:
+    branches: ['release-assets/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: startsWith(github.ref_name, 'release-assets/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release with its files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME#release-assets/}"
+          gh release create "$tag" release/files/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$(cat release/TARGET)" \
+            --title "$(cat release/TITLE)" \
+            --notes-file release/NOTES.md \
+            --prerelease
+      - name: Delete the assets branch
+        run: git push origin --delete "$GITHUB_REF_NAME"
