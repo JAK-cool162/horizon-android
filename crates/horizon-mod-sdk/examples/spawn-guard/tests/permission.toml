@@ -1,12 +1,12 @@
 # Before the player allows it to cancel ("control"), the subscription is refused: it asks
 # again every 100 ticks, and stops once it is taken.
 
-[bridge.extras]
+[bridge.hapi]
 version = 3
 errors = { subscribe = "spawn_guard needs your permission to cancel what players do" }
 
 [[step]]
-expect.calls = ['extras subscribe ["break_block","use_block","explosion"]']
+expect.calls = ['hapi subscribe ["break_block","use_block","explosion"]']
 
 [[step]]
 ticks = 99
@@ -14,4 +14,4 @@ expect.calls = []
 
 [[step]]
 ticks = 1
-expect.calls = ['extras subscribe ["break_block","use_block","explosion"]']
+expect.calls = ['hapi subscribe ["break_block","use_block","explosion"]']

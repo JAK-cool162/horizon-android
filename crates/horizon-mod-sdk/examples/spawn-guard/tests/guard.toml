@@ -1,25 +1,25 @@
 # With the Extras API 2: it subscribes at start, and cancels near 0, 0 for non-operators.
 
-[bridge.extras]
+[bridge.hapi]
 version = 2
 replies = { subscribe = '["break_block","use_block","explosion"]' }
 
 [[step]]
-expect.calls = ['extras subscribe ["break_block","use_block","explosion"]']
+expect.calls = ['hapi subscribe ["break_block","use_block","explosion"]']
 
 [[step]]
-bridge-ask = { api = "extras", name = "break_block", data = '{"player":"x","name":"Alex","permission":0,"dimension":"minecraft:overworld","x":5,"y":64,"z":-3,"block":"minecraft:grass_block[snowy=false]"}' }
+bridge-ask = { api = "hapi", name = "break_block", data = '{"player":"x","name":"Alex","permission":0,"dimension":"minecraft:overworld","x":5,"y":64,"z":-3,"block":"minecraft:grass_block[snowy=false]"}' }
 expect.answer = "cancel The spawn area is protected"
 
 [[step]]
-bridge-ask = { api = "extras", name = "break_block", data = '{"permission":0,"dimension":"minecraft:overworld","x":40,"y":64,"z":0}' }
+bridge-ask = { api = "hapi", name = "break_block", data = '{"permission":0,"dimension":"minecraft:overworld","x":40,"y":64,"z":0}' }
 expect.answer = ""
 
 # An operator builds there as usual.
 [[step]]
-bridge-ask = { api = "extras", name = "use_block", data = '{"permission":4,"dimension":"minecraft:overworld","x":0,"y":64,"z":0}' }
+bridge-ask = { api = "hapi", name = "use_block", data = '{"permission":4,"dimension":"minecraft:overworld","x":0,"y":64,"z":0}' }
 expect.answer = ""
 
 [[step]]
-bridge-ask = { api = "extras", name = "explosion", data = '{"dimension":"minecraft:overworld","x":2.5,"y":60,"z":2.5,"blocks":31}' }
+bridge-ask = { api = "hapi", name = "explosion", data = '{"dimension":"minecraft:overworld","x":2.5,"y":60,"z":2.5,"blocks":31}' }
 expect.answer = "cancel"

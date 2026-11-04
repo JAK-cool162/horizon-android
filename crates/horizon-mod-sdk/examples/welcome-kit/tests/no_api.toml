@@ -3,8 +3,8 @@
 [[step]]
 join = "Alex"
 expect.calls = []
-expect.told = ["Alex: No starter kit: this server needs the Extras API native mod (extras_api.hnmod)"]
+expect.told = ["Alex: No starter kit: this server needs Hapi, the Horizon API native mod (hapi.hnmod)"]
 
 [[step]]
 command = "tps"
-expect.error = "Install the Extras API native mod (extras_api.hnmod) for /tps"
+expect.error = "Install Hapi, the Horizon API native mod (hapi.hnmod) for /tps"

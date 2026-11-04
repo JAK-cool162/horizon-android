@@ -1,11 +1,11 @@
 # With the Extras API 3: it reads the options and the shader packs at start, and /video opens.
 
-[bridge.extras]
+[bridge.hapi]
 version = 3
 replies = { options = '{"render_distance":8,"max_fps":120,"graphics":"fast","clouds":"fast","gamma":0.5,"shader_pack":""}', shader_packs = '[]' }
 
 [[step]]
-expect.calls = ["extras options", "extras shader_packs"]
+expect.calls = ["hapi options", "hapi shader_packs"]
 
 [[step]]
 command = "video"

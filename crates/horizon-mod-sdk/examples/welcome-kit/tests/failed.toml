@@ -1,7 +1,7 @@
 # A give that fails (an unknown item, a full inventory...): the player hears why, and
 # gets another try on their next join.
 
-[bridge.extras]
+[bridge.hapi]
 values = {}
 errors = { command = "Unknown item" }
 
@@ -15,7 +15,7 @@ leave = "Alex"
 [[step]]
 join = "Alex"
 expect.calls = [
-  "extras command give Alex minecraft:stone_pickaxe 1",
-  "extras command give Alex minecraft:bread 8",
-  "extras command give Alex minecraft:torch 16",
+  "hapi command give Alex minecraft:stone_pickaxe 1",
+  "hapi command give Alex minecraft:bread 8",
+  "hapi command give Alex minecraft:torch 16",
 ]

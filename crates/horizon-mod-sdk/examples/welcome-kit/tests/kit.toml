@@ -1,6 +1,6 @@
 # A new player gets the kit through the Extras API, once; /tps reads its values.
 
-[bridge.extras]
+[bridge.hapi]
 version = 1
 values = { tps = "20.0", mspt = "3.1" }
 replies = { command = "" }
@@ -8,9 +8,9 @@ replies = { command = "" }
 [[step]]
 join = "Alex"
 expect.calls = [
-  "extras command give Alex minecraft:stone_pickaxe 1",
-  "extras command give Alex minecraft:bread 8",
-  "extras command give Alex minecraft:torch 16",
+  "hapi command give Alex minecraft:stone_pickaxe 1",
+  "hapi command give Alex minecraft:bread 8",
+  "hapi command give Alex minecraft:torch 16",
 ]
 expect.told = ["Alex: Welcome, Alex! Here is your starter kit."]
 
