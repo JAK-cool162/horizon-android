@@ -2470,10 +2470,12 @@ impl Launcher {
                     .filter(|k| crate::native_build::ai_key(k).is_some());
                 let repo = crate::native_build::repository(&self.catalog.config.github_repo);
                 self.catalog.status = match (key, repo, crate::native_build::token()) {
-                    (None, ..) => "The clipboard has no AI key: copy a Gemini key (AIza..., free \
+                    (None, ..) => {
+                        "The clipboard has no AI key: copy a Gemini key (AQ... or AIza..., free \
                                    at aistudio.google.com), a Groq key (gsk_...) or an \
                                    Anthropic key (sk-ant-...), then tap AI key again"
-                        .into(),
+                            .into()
+                    }
                     (Some(_), None, _) | (Some(_), _, None) => {
                         "Set the GitHub token first: the key is saved on your fork".into()
                     }

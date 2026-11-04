@@ -691,16 +691,17 @@ fn retry<T>(mut call: impl FnMut() -> Result<T, String>) -> Result<T, String> {
 }
 
 /// The AI provider an API key belongs to, by its prefix, and the secret the workflow reads it
-/// from: Gemini's (`AIza`), Groq's (`gsk_`) or Anthropic's (`sk-ant-`).
+/// from: Gemini's (`AIza` or `AQ.`), Groq's (`gsk_`) or Anthropic's (`sk-ant-`).
 pub fn ai_key(key: &str) -> Option<(&'static str, &'static str)> {
     let plain = (20..=240).contains(&key.len())
         && key
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
     if !plain {
         return None;
     }
-    if key.starts_with("AIza") {
+    // AI Studio's keys: `AIza` before 2026, `AQ.` (its "Auth" keys) since.
+    if key.starts_with("AIza") || key.starts_with("AQ.") {
         Some(("Gemini", AI_SECRETS[0]))
     } else if key.starts_with("gsk_") {
         Some(("Groq", AI_SECRETS[1]))
