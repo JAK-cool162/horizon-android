@@ -567,9 +567,8 @@ fn convert(
     }
     if !has_key {
         return Err(
-            "Add your AI key to GitHub first: your fork > Settings > Secrets and \
-             variables > Actions > New repository secret, named GROQ_API_KEY (or \
-             ANTHROPIC_API_KEY)"
+            "Add your Groq key first: copy it on console.groq.com, then tap Setup > Groq \
+             API key"
                 .into(),
         );
     }
