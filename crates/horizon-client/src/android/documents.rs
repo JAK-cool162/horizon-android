@@ -38,6 +38,8 @@ pub struct Notice {
     pub kind: Option<Kind>,
     /// A mod staged for "Convert with AI", for the launcher to send to GitHub.
     pub ai: Option<PathBuf>,
+    /// The staged mod is for the free mod check, not the AI conversion.
+    pub check: bool,
 }
 #[derive(Default)]
 struct State {
@@ -65,6 +67,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     cursor: (0.0, 0.0),
 });
 static CANCEL: AtomicBool = AtomicBool::new(false);
+/// The picked mod goes to the mod check rather than the AI conversion.
+static CHECK: AtomicBool = AtomicBool::new(false);
 pub fn busy() -> bool {
     let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     s.request.is_some() || s.working || s.conflict.is_some()
@@ -85,6 +89,7 @@ fn notice(text: impl Into<String>, changed: bool) {
         changed,
         kind: None,
         ai: None,
+        check: false,
     });
 }
 /// A message for the launcher's status line; `changed` reloads the installed lists.
@@ -100,6 +105,7 @@ fn imported(text: impl Into<String>, kind: Kind) {
         changed: true,
         kind: Some(kind),
         ai: None,
+        check: false,
     });
 }
 pub fn poll() -> Option<Notice> {
@@ -109,6 +115,7 @@ pub fn poll() -> Option<Notice> {
             changed: true,
             kind: None,
             ai: None,
+            check: false,
         });
     }
     STATE
@@ -123,6 +130,12 @@ pub fn begin(kind: Kind, home: PathBuf) -> std::result::Result<(), String> {
 /// "Convert with AI": the player picks a Java mod (.jar) or a native mod (.hnmod), staged for
 /// the launcher to send to its GitHub conversion.
 pub fn begin_ai(home: PathBuf) -> std::result::Result<(), String> {
+    CHECK.store(false, Ordering::Relaxed);
+    begin_request(Kind::Mods, home, true)
+}
+/// The free mod check: the player picks a .jar or .hnmod, staged for the launcher to read.
+pub fn begin_check(home: PathBuf) -> std::result::Result<(), String> {
+    CHECK.store(true, Ordering::Relaxed);
     begin_request(Kind::Mods, home, true)
 }
 fn begin_request(kind: Kind, home: PathBuf, ai: bool) -> std::result::Result<(), String> {
@@ -370,12 +383,18 @@ fn stage_for_ai(request: Request, mut input: std::fs::File, name: String) -> Res
         !CANCEL.load(Ordering::Relaxed)
     })?;
     output.sync_all()?;
+    let check = CHECK.swap(false, Ordering::Relaxed);
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     s.notice = Some(Notice {
-        text: format!("Sending {name} to the AI conversion..."),
+        text: if check {
+            format!("Checking {name}...")
+        } else {
+            format!("Sending {name} to the AI conversion...")
+        },
         changed: false,
         kind: None,
         ai: Some(target),
+        check,
     });
     Ok(())
 }

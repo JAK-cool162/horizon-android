@@ -259,6 +259,32 @@ impl Launcher {
     }
 }
 impl Chooser {
+    /// The mod check's answer: each part the mod uses and what Horizon can do of it.
+    pub(super) fn mod_check(report: crate::mod_check::Report) -> Self {
+        let (summary, advice) = report
+            .verdict
+            .split_once(". ")
+            .map(|(s, a)| (s.to_owned(), a.to_owned()))
+            .unwrap_or((report.verdict.clone(), String::new()));
+        let mut choices = vec![(advice, String::new(), Action::Dismiss, false)];
+        choices.extend(report.parts.iter().map(|p| {
+            (
+                p.what.to_owned(),
+                p.horizon.to_owned(),
+                Action::Dismiss,
+                false,
+            )
+        }));
+        choices.push(("Close".into(), String::new(), Action::Dismiss, true));
+        Self {
+            title: "Mod check",
+            help: "What this mod uses, and what Horizon's mods can do of it. Free: nothing was \
+                   uploaded.",
+            device: Some(summary),
+            choices,
+            scroll: 0.0,
+        }
+    }
     pub(super) fn confirm_delete(name: String) -> Self {
         Self {
             title: "Remove add-on?",

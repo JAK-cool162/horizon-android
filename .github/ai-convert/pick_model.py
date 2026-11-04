@@ -9,12 +9,12 @@ list is read at run time instead of naming one model.
 import json
 import sys
 
-# Strongest coding and long-context first.
+# The player's pick (Qwen 3.8) first, then the strongest coding and long-context models.
 PREFERRED = [
+    'qwen/qwen3.8-27b',
     'openai/gpt-oss-120b',
     'moonshotai/kimi-k2-instruct-0905',
     'moonshotai/kimi-k2-instruct',
-    'qwen/qwen3.8-27b',
     'qwen/qwen3-32b',
     'llama-3.3-70b-versatile',
     'openai/gpt-oss-20b',

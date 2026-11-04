@@ -18,6 +18,8 @@ mod launcher;
 mod launcher_sky;
 #[path = "android/launcher_style.rs"]
 mod launcher_style;
+#[path = "android/mod_check.rs"]
+mod mod_check;
 #[path = "android/native_build.rs"]
 mod native_build;
 #[path = "android/native_build_plan.rs"]

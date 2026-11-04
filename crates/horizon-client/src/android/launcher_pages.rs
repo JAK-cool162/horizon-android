@@ -76,6 +76,8 @@ pub(super) enum Action {
     ConfirmBuildNative,
     /// "Convert with AI": pick a .jar or .hnmod for the GitHub conversion.
     AiConvert,
+    /// The free mod check: pick a .jar or .hnmod to see what Horizon can do of it.
+    CheckMod,
     /// Setup's GitHub token row: the token on the clipboard, saved.
     TokenFromClipboard,
     /// Setup's AI key row: the key on the clipboard, saved as the fork's secret.
@@ -1620,6 +1622,8 @@ impl Launcher {
                     "Choose a .jar",
                     Action::Import(horizon_client::content_files::Kind::Mods),
                     true,
+                    // The free check first: what Horizon can do of a .jar or .hnmod.
+                    Some(("Check a mod first (free, instant)", Action::CheckMod)),
                 ),
                 (
                     two,
@@ -1641,14 +1645,29 @@ impl Launcher {
                         Action::AiConvert
                     },
                     false,
+                    None,
                 ),
             ];
-            for ([x, y, cw, ch], title, subtitle, body, status, label, action, accent) in cards {
+            for ([x, y, cw, ch], title, subtitle, body, status, label, action, accent, extra) in
+                cards
+            {
                 style::card(&mut ui, [x, y, cw, ch], color::CARD);
                 ui.text(Face::SemiBold, 20.0, x + 20.0, y + 16.0, color::TEXT, title);
                 let sub = ui.fit_text(Face::Medium, 14.0, subtitle, cw - 40.0);
                 ui.text(Face::Medium, 14.0, x + 20.0, y + 46.0, color::ACCENT, &sub);
                 let button_y = y + ch - 64.0;
+                let text_bottom = button_y - if extra.is_some() { 52.0 } else { 0.0 };
+                if let Some((extra_label, extra_action)) = extra {
+                    button(
+                        &mut ui,
+                        &mut self.targets,
+                        [x + 20.0, button_y - 52.0, cw - 40.0, 44.0],
+                        extra_label,
+                        extra_action,
+                        false,
+                    );
+                }
+                let button_y = text_bottom;
                 let mut line_y = y + 76.0;
                 for line in wrap(&ui, Face::Regular, 14.0, body, cw - 40.0) {
                     if line_y + 20.0 > button_y - 8.0 {
@@ -1671,7 +1690,7 @@ impl Launcher {
                 button(
                     &mut ui,
                     &mut self.targets,
-                    [x + 20.0, button_y, cw - 40.0, 44.0],
+                    [x + 20.0, y + ch - 64.0, cw - 40.0, 44.0],
                     label,
                     action,
                     accent,
@@ -2512,6 +2531,13 @@ impl Launcher {
                     if let Err(e) = crate::documents::begin_ai(home) {
                         self.catalog.status = e;
                     }
+                }
+            }
+            Some(Action::CheckMod) => {
+                crate::platform::hide();
+                let home = self.catalog.config.game_home(&self.home);
+                if let Err(e) = crate::documents::begin_check(home) {
+                    self.catalog.status = e;
                 }
             }
             Some(Action::OpenAiRun) => {

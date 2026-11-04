@@ -608,6 +608,24 @@ impl ApplicationHandler for Launcher {
         self.catalog.poll(&self.home);
         if let Some(notice) = crate::documents::poll() {
             // A mod picked for "Convert with AI": off to the player's GitHub fork.
+            if let (Some(file), true) = (&notice.ai, notice.check) {
+                // The free mod check: read here, answered in a dialog, the copy dropped.
+                let name = file
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                match crate::mod_check::check(file, &name) {
+                    Ok(report) => self.chooser = Some(chooser::Chooser::mod_check(report)),
+                    Err(e) => self.catalog.status = format!("Could not check {name}: {e}"),
+                }
+                let _ = std::fs::remove_file(file);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+                return events.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(16),
+                ));
+            }
             if let Some(file) = &notice.ai {
                 let repo = crate::native_build::repository(&self.catalog.config.github_repo);
                 if let (Some(repo), Some(token)) = (repo, crate::native_build::token()) {
