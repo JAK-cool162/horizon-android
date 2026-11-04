@@ -12076,6 +12076,8 @@ impl Game<'_> {
             title.skip_multiplayer_warning = self.settings.file.bool("skipMultiplayerWarning");
         }
         self.capture(false);
+        // The world's chunks, meshes and entities are dropped: give their pages back.
+        horizon_threads::release_free_memory();
         Ok(())
     }
     /// Let go of every entity of the level (saved first): the next world
@@ -19415,6 +19417,8 @@ fn load_world_rest(
         biomes.list.len(),
         threads
     );
+    // Loading's temporaries (parsed JSON, decoded images) are dropped by now: give their pages back.
+    horizon_threads::release_free_memory();
     progress.set(8);
     Ok(WorldRest {
         stations,

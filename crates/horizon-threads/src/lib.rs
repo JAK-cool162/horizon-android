@@ -253,7 +253,31 @@ fn release() {
     }
 }
 
-#[cfg(not(any(all(target_os = "linux", target_env = "gnu"), target_vendor = "apple")))]
+/// Android's allocator (Bionic's Scudo, or jemalloc before Android 11) keeps freed pages cached
+/// for reuse; a purge gives them back, so the large temporaries of loading (parsed JSON, packed
+/// atlases) stop counting against the app once they are dropped.
+#[cfg(target_os = "android")]
+fn release() {
+    // mallopt options of Bionic's malloc.h: M_PURGE_ALL (Android 14) also empties the per-thread
+    // caches; M_PURGE frees the cached pages on older releases. Both return 0 when unknown.
+    const M_PURGE: libc::c_int = -101;
+    const M_PURGE_ALL: libc::c_int = -104;
+    unsafe extern "C" {
+        fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+    }
+    // SAFETY: frees only pages no allocation uses; no live allocation moves.
+    unsafe {
+        if mallopt(M_PURGE_ALL, 0) == 0 {
+            mallopt(M_PURGE, 0);
+        }
+    }
+}
+
+#[cfg(not(any(
+    all(target_os = "linux", target_env = "gnu"),
+    target_vendor = "apple",
+    target_os = "android"
+)))]
 fn release() {}
 
 /// The REPARSE_DATA_BUFFER of a mount point naming `name` (UTF-16, `\??\` prefixed). The length
