@@ -21,6 +21,8 @@ pub struct TestGame {
     mods: Mods,
     dir: PathBuf,
     hmod: PathBuf,
+    /// Which side the game runs: a two-sided mod's server half on `Runs::Server`.
+    runs: crate::Runs,
     /// What the mod reads with `game-read`; ticks move the clock as the game does.
     pub player: Option<Player>,
     pub clock: Option<Clock>,
@@ -107,6 +109,13 @@ impl TestGame {
     /// Starts the mod at `hmod`, as the game would with it turned on. Errs
     /// when it doesn't start, with the game's reason.
     pub fn load(hmod: &Path) -> Result<TestGame, String> {
+        Self::load_on(hmod, crate::Runs::Both)
+    }
+    /// [`TestGame::load`] as the game simulating the world: a two-sided mod's server half.
+    pub fn load_server_half(hmod: &Path) -> Result<TestGame, String> {
+        Self::load_on(hmod, crate::Runs::Server)
+    }
+    fn load_on(hmod: &Path, runs: crate::Runs) -> Result<TestGame, String> {
         static RUN: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "horizon-mod-test-{}-{}",
@@ -119,6 +128,7 @@ impl TestGame {
         let mut game = TestGame {
             mods: Mods::default(),
             hmod: copy.clone(),
+            runs,
             dir,
             player: Some(default_player()),
             clock: Some(Clock {
@@ -138,7 +148,7 @@ impl TestGame {
 
     fn start(&mut self) -> Result<(), String> {
         self.mods = Mods::load_bridged(
-            crate::Runs::Both,
+            self.runs,
             std::slice::from_ref(&self.hmod),
             |_| true,
             |_| false,

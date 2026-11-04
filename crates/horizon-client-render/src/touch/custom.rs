@@ -20,6 +20,7 @@ impl CustomButton {
     }
     pub fn valid_token(token: &str) -> bool {
         mod_key(token).is_some()
+            || WHEEL.iter().any(|(t, _)| *t == token)
             || token == "key.keyboard.unknown"
             || crate::keybinds::key_code(token).is_some()
             || token
@@ -32,6 +33,9 @@ impl CustomButton {
         }
         if let Some(name) = self.key.strip_prefix("action:") {
             return crate::text::Text::translate(name, &[]).plain();
+        }
+        if let Some((_, label)) = WHEEL.iter().find(|(t, _)| *t == self.key) {
+            return (*label).into();
         }
         if let Some((_, name)) = mod_key(&self.key) {
             // The mod's own label while it runs (without "Mod: "), else its name for the key.
@@ -47,6 +51,9 @@ impl CustomButton {
         crate::keybinds::display_name(&self.key).plain()
     }
 }
+/// A step of the mouse wheel a button can send (phones have no wheel): what a mod that took the
+/// wheel hears, else the hotbar's or the open screen's scrolling.
+pub const WHEEL: [(&str, &str); 2] = [("wheel:up", "Scroll up"), ("wheel:down", "Scroll down")];
 /// The mods' keys a button can press: `(mod:<mod id>:<key name>, "<mod>: <label>")`, set by the
 /// game from the mods running (`set_mod_keys`).
 static MOD_KEYS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
@@ -73,6 +80,11 @@ pub(super) fn choices(raw_keys: bool) -> Vec<(String, String)> {
     } else {
         let mods = MOD_KEYS.lock().unwrap_or_else(|e| e.into_inner()).clone();
         mods.into_iter()
+            .chain(
+                WHEEL
+                    .iter()
+                    .map(|(t, l)| ((*t).to_owned(), (*l).to_owned())),
+            )
             .chain(
                 crate::keybinds::MAPPINGS
                     .iter()

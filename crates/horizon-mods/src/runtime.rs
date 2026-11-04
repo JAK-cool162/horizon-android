@@ -221,13 +221,18 @@ pub struct Recipes {
 
 /// Which mods a game starts: the window's game the client mods, the game
 /// simulating the world the server mods, single player in the frame both.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Runs {
     Client,
     Server,
+    #[default]
     Both,
 }
 impl Runs {
+    /// Whether this game starts `package`: a two-sided mod's server half on a server too.
+    fn starts_package(self, package: &Package) -> bool {
+        self.starts(package.manifest.side) || (self == Runs::Server && package.manifest.two_sided())
+    }
     fn starts(self, side: Side) -> bool {
         match self {
             Runs::Both => true,
@@ -523,6 +528,8 @@ struct State {
 /// the state with none: no engine, and every hook a no-op.
 #[derive(Default)]
 pub struct Mods {
+    /// Which sides' mods this game runs: for a two-sided mod, which half.
+    runs: Runs,
     engine: Option<(Engine, Linker<State>)>,
     entries: Vec<Entry>,
     snapshot: Arc<Snapshot>,
@@ -599,7 +606,10 @@ impl Mods {
         apis: std::collections::BTreeMap<String, u32>,
         values: std::collections::BTreeMap<(String, String), String>,
     ) -> Mods {
-        let mut mods = Mods::default();
+        let mut mods = Mods {
+            runs,
+            ..Mods::default()
+        };
         mods.set_bridge(apis, values);
         for path in paths {
             let modified = modified(path);
@@ -616,7 +626,7 @@ impl Mods {
                 Ok(package) => {
                     let on = enabled(&package.manifest.id);
                     entry.manifest = Some(package.manifest.clone());
-                    if on && !runs.starts(package.manifest.side) {
+                    if on && !runs.starts_package(&package) {
                         entry.status = Status::Elsewhere;
                     } else if on {
                         // Content is read before the world loads; a mod whose
@@ -677,7 +687,16 @@ impl Mods {
         reserved: &dyn Fn(&str) -> bool,
     ) -> Result<Option<Running>, String> {
         let m = &package.manifest;
-        let Some(wasm) = &package.wasm else {
+        // A two-sided mod: its server half where the world is simulated, its client half in the
+        // player's game (and in the in-frame game, which runs both sides in one: only one half
+        // of a mod can run in one game).
+        let server = m.side == Side::Server || (m.two_sided() && self.runs == Runs::Server);
+        let wasm = if server && m.two_sided() {
+            &package.server_wasm
+        } else {
+            &package.wasm
+        };
+        let Some(wasm) = wasm else {
             return Ok(None);
         };
         // Two running mods with the same id would share one `data_dir`
@@ -689,7 +708,6 @@ impl Mods {
         {
             return Err(format!("another running mod already uses id {}", m.id));
         }
-        let server = m.side == Side::Server;
         let taken: Vec<String> = self
             .entries
             .iter()

@@ -345,6 +345,24 @@ art, so a theme follows whatever GUI the player's packs draw.
 `max_saturation` (0 to 1, default 0.12) is how grey a pixel must be to be recoloured. With two
 theme mods on, the first by id wins. It applies when the game starts or reloads its resources.
 
+## Two-sided mods (one file)
+
+A mod with a client half (keys, HUD, outlines) and a server half (commands, block events,
+`world.mine-blocks`) can ship as one `.hmod` and one switch on the Mods page:
+
+```toml
+api = "0.3"
+side = "both"
+capabilities = ["game-read", "input", "render", "command", "players", "world"]
+```
+
+The crate at the mod's root is the client half (`mod.wasm`); the crate in `server/` is the server
+half (`server.wasm`), built by the same `cargo horizon-mod build`. The game runs the server half where
+the world is simulated (single player's server thread, a LAN host, a dedicated server) and the client
+half in the player's window. The client half reaches its server half with `command.run-quiet` lines
+of the server half's own command. `cargo horizon-mod test` runs `tests/*.toml` against the client half
+and `tests/server/*.toml` against the server half.
+
 ## Native mods
 
 Behaviour that needs code (a new key, a HUD, a tool that changes how mining works) is a native mod. It is a bundle of

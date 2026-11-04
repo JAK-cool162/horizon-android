@@ -559,15 +559,19 @@ pub fn inspect(kind: &Kind, path: &Path) -> Result<Facts, String> {
     match kind {
         Kind::NativeMod => Ok(native::Bundle::read(path)?.manifest.facts()),
         Kind::Mod => {
-            let Package { manifest: m, wasm } = Package::read(path)?;
+            let Package {
+                manifest: m,
+                wasm,
+                server_wasm,
+            } = Package::read(path)?;
             crate::Content::read(path, &m)?;
-            let api_level = match wasm {
-                Some(wasm) => {
-                    let functions = crate::api_level::imports(&wasm)?;
-                    Some(crate::api_level::needed(functions.iter().map(String::as_str)).0)
-                }
-                None => None,
-            };
+            // A two-sided mod needs the level of the newer of its halves.
+            let mut api_level = None;
+            for wasm in [wasm, server_wasm].into_iter().flatten() {
+                let functions = crate::api_level::imports(&wasm)?;
+                let level = crate::api_level::needed(functions.iter().map(String::as_str)).0;
+                api_level = Some(api_level.map_or(level, |l: u32| l.max(level)));
+            }
             Ok(Facts {
                 api_level,
                 capabilities: m.capabilities,

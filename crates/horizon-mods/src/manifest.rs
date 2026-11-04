@@ -10,6 +10,8 @@ use std::{
 pub const MANIFEST: &str = "horizon-mod.toml";
 /// The component's file name in a `.hmod` or a mod folder.
 pub const WASM: &str = "mod.wasm";
+/// A two-sided mod's server half ([`Manifest::two_sided`]); `mod.wasm` is its client half.
+pub const SERVER_WASM: &str = "server.wasm";
 /// The API (WIT package `horizon:mods`) versions this build runs: a mod
 /// built for any 0.1.x SDK.
 pub const API: &str = "0.1";
@@ -232,6 +234,12 @@ impl fmt::Display for Capability {
 }
 
 impl Manifest {
+    /// A mod with a half for each side in one file: side "both" with the server API ("0.3").
+    /// Its client half (`mod.wasm`) runs in the player's game, its server half
+    /// (`server.wasm`) where the world is simulated; one switch turns both on.
+    pub fn two_sided(&self) -> bool {
+        self.side == Side::Both && self.api == SERVER_API
+    }
     pub fn parse(text: &str) -> Result<Self, String> {
         let m: Manifest = toml::from_str(text).map_err(|e| format!("{MANIFEST}: {e}"))?;
         let id_ok = (1..=64).contains(&m.id.len())
@@ -256,8 +264,10 @@ impl Manifest {
                 "{MANIFEST}: capability registries needs api = \"0.2\""
             ));
         }
+        // A two-sided mod (side "both", api "0.3") has a half for each side, so it may ask for
+        // the client's capabilities and the server's.
         let server = m.side == Side::Server;
-        if server != (m.api == SERVER_API) {
+        if !m.two_sided() && server != (m.api == SERVER_API) {
             return Err(format!(
                 "{MANIFEST}: a server mod is side = \"server\" with api = \"{SERVER_API}\", and only it"
             ));
@@ -267,7 +277,9 @@ impl Manifest {
             .iter()
             // `storage` and `bridge` serve both sides.
             .find(|c| {
-                c.on_server() != server && !matches!(c, Capability::Storage | Capability::Bridge)
+                !m.two_sided()
+                    && c.on_server() != server
+                    && !matches!(c, Capability::Storage | Capability::Bridge)
             })
         {
             let side = if server { "client" } else { "server" };
@@ -333,21 +345,32 @@ impl Manifest {
 /// A mod as found on disk: its manifest and component bytes.
 pub struct Package {
     pub manifest: Manifest,
-    /// None for a content-only mod (capability `registries`, no code).
+    /// None for a content-only mod (capability `registries`, no code). A two-sided mod's
+    /// client half.
     pub wasm: Option<Vec<u8>>,
+    /// A two-sided mod's server half (`server.wasm`).
+    pub server_wasm: Option<Vec<u8>>,
 }
 impl Package {
     /// A `.hmod` (a zip holding `horizon-mod.toml`, `mod.wasm` and, for
     /// content, `assets/` and `data/`) or a folder holding the same.
     pub fn read(path: &Path) -> Result<Self, String> {
-        let (toml, wasm) = if path.is_dir() {
+        let (toml, wasm, server_wasm) = if path.is_dir() {
             let toml = std::fs::read_to_string(path.join(MANIFEST));
-            let wasm = path.join(WASM);
-            let wasm = match wasm.exists() {
-                true => Some(std::fs::read(wasm).map_err(|e| format!("{WASM}: {e}"))?),
-                false => None,
+            let read = |name: &str| -> Result<Option<Vec<u8>>, String> {
+                let file = path.join(name);
+                match file.exists() {
+                    true => Ok(Some(
+                        std::fs::read(file).map_err(|e| format!("{name}: {e}"))?,
+                    )),
+                    false => Ok(None),
+                }
             };
-            (toml.map_err(|e| format!("{MANIFEST}: {e}"))?, wasm)
+            (
+                toml.map_err(|e| format!("{MANIFEST}: {e}"))?,
+                read(WASM)?,
+                read(SERVER_WASM)?,
+            )
         } else {
             let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -365,18 +388,37 @@ impl Package {
             };
             let toml = entry(MANIFEST)?.ok_or_else(|| format!("{MANIFEST}: missing"))?;
             let toml = String::from_utf8(toml).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
-            (toml, entry(WASM)?)
+            (toml, entry(WASM)?, entry(SERVER_WASM)?)
         };
-        if wasm.as_ref().is_some_and(|w| w.len() as u64 > MAX_WASM) {
-            return Err(format!("{WASM} is over {} MiB", MAX_WASM >> 20));
+        for (name, bytes) in [(WASM, &wasm), (SERVER_WASM, &server_wasm)] {
+            if bytes.as_ref().is_some_and(|w| w.len() as u64 > MAX_WASM) {
+                return Err(format!("{name} is over {} MiB", MAX_WASM >> 20));
+            }
         }
         let manifest = Manifest::parse(&toml)?;
+        match (manifest.two_sided(), server_wasm.is_some()) {
+            (true, false) => {
+                return Err(format!(
+                    "{SERVER_WASM}: missing (a mod of side \"both\" with api \"{SERVER_API}\" has a server half)"
+                ));
+            }
+            (false, true) => {
+                return Err(format!(
+                    "{SERVER_WASM}: only a two-sided mod (side \"both\", api \"{SERVER_API}\") has one"
+                ));
+            }
+            _ => {}
+        }
         if wasm.is_none() && !manifest.capabilities.contains(&Capability::Registries) {
             return Err(format!(
                 "{WASM}: missing (only a content mod, with capability registries, may have no code)"
             ));
         }
-        Ok(Package { manifest, wasm })
+        Ok(Package {
+            manifest,
+            wasm,
+            server_wasm,
+        })
     }
     /// The `.hmod` bytes for `manifest_text` and a component.
     pub fn write(manifest_text: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
@@ -387,6 +429,15 @@ impl Package {
     pub fn write_files(
         manifest_text: &str,
         wasm: Option<&[u8]>,
+        files: &[(&str, &[u8])],
+    ) -> Result<Vec<u8>, String> {
+        Self::write_halves(manifest_text, wasm, None, files)
+    }
+    /// [`Package::write_files`] for a two-sided mod too: its server half beside the client's.
+    pub fn write_halves(
+        manifest_text: &str,
+        wasm: Option<&[u8]>,
+        server_wasm: Option<&[u8]>,
         files: &[(&str, &[u8])],
     ) -> Result<Vec<u8>, String> {
         use std::io::Write;
@@ -401,6 +452,9 @@ impl Package {
         put(MANIFEST, manifest_text.as_bytes())?;
         if let Some(wasm) = wasm {
             put(WASM, wasm)?;
+        }
+        if let Some(server) = server_wasm {
+            put(SERVER_WASM, server)?;
         }
         for (name, bytes) in files {
             crate::content::check_path(name)?;
@@ -529,7 +583,8 @@ capabilities = ["game-read", "hud"]
         let m = server("0.3", "server", "\"players\", \"storage\"").unwrap();
         let imports = ["horizon:mods/players@0.1.0", "horizon:mods/storage@0.1.0"];
         assert_eq!(m.check_imports(imports), Ok(()));
-        for (api, side) in [("0.3", "client"), ("0.3", "both"), ("0.1", "server")] {
+        // api 0.3 with side "both" is a two-sided mod (two_sided_mods_carry_both_halves).
+        for (api, side) in [("0.3", "client"), ("0.1", "server")] {
             let e = server(api, side, "").unwrap_err();
             assert!(e.contains("a server mod is side"), "{e}");
         }
@@ -567,6 +622,33 @@ capabilities = ["game-read", "hud"]
         let p = Package::read(&path).unwrap();
         assert_eq!(p.manifest.id, "coords_hud");
         assert_eq!(p.wasm.as_deref(), Some(&b"\0asm"[..]));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn two_sided_mods_carry_both_halves() {
+        let toml = "id = \"both\"\nname = \"B\"\nversion = \"1\"\napi = \"0.3\"\nside = \"both\"\n\
+                    capabilities = [\"game-read\", \"world\"]\n";
+        let m = Manifest::parse(toml).unwrap();
+        assert!(m.two_sided());
+        let dir = std::env::temp_dir().join(format!("horizon-mods-both-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("both.hmod");
+        let bytes = Package::write_halves(toml, Some(b"\0asm"), Some(b"\0asm\x01"), &[]).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        let p = Package::read(&path).unwrap();
+        assert_eq!(p.wasm.as_deref(), Some(&b"\0asm"[..]));
+        assert_eq!(p.server_wasm.as_deref(), Some(&b"\0asm\x01"[..]));
+        // Without its server half it is refused, as is a server half in a one-sided mod.
+        std::fs::write(
+            &path,
+            Package::write_halves(toml, Some(b"\0asm"), None, &[]).unwrap(),
+        )
+        .unwrap();
+        assert!(Package::read(&path).is_err());
+        let bytes = Package::write_halves(EXAMPLE, Some(b"\0asm"), Some(b"\0asm"), &[]).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        assert!(Package::read(&path).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

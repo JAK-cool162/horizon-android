@@ -208,8 +208,43 @@ impl Game<'_> {
             .find(|[n, _, _]| n == name)
             .map(|[_, _, default]| default.clone())
     }
+    /// A touch button's wheel step (`touch::WHEEL`): to a mod or native mod holding the wheel,
+    /// else the hotbar while playing, or the open chat, options or mod screen.
+    fn android_custom_wheel(&mut self, up: bool) {
+        let d = if up { 1.0 } else { -1.0 };
+        if self.screen == Screen::Playing && !self.screen_over_playing() && self.player.is_some() {
+            if self.native_wheel_event(d) || self.mod_wheel(d) || self.spectator() {
+                return;
+            }
+            self.selected = horizon_client::mouse::ScrollWheelHandler::next_selection(
+                f64::from(d),
+                self.selected as i32,
+                9,
+            ) as usize;
+            return;
+        }
+        match self.screen {
+            Screen::Chat => self.chat_scroll(d),
+            Screen::Options => {
+                if let Err(error) = self.options_scroll(d) {
+                    log::warn!("Touch scroll: {error}");
+                }
+            }
+            Screen::Mod => self.mod_screen_scroll(d),
+            _ => {}
+        }
+    }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
+            if let Some(i) = horizon_client::touch::WHEEL
+                .iter()
+                .position(|(t, _)| *t == name)
+            {
+                if down {
+                    self.android_custom_wheel(i == 0);
+                }
+                continue;
+            }
             // A mod's key: only the mods hear it, on whatever key it is bound to.
             if let Some((id, key_name)) = horizon_client::touch::mod_key(&name) {
                 let Some(bound) = self.android_mod_binding(id, key_name) else {

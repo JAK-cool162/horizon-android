@@ -1686,10 +1686,10 @@ fn outline_edges<V: Copy>(
                 });
                 let filled = around.iter().filter(|c| c.is_some()).count();
                 let diagonal = filled == 2 && (around[0].is_some() == around[3].is_some());
-                if filled == 1 || filled == 3 || diagonal {
-                    if let Some(v) = around.iter().flatten().next() {
-                        out.push((start, axis, *v));
-                    }
+                if (filled == 1 || filled == 3 || diagonal)
+                    && let Some(v) = around.iter().flatten().next()
+                {
+                    out.push((start, axis, *v));
                 }
             }
         }

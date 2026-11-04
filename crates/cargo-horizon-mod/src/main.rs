@@ -180,6 +180,20 @@ fn build_in(root: &Path, release: bool) -> Result<PathBuf, String> {
     let manifest_text = std::fs::read_to_string(root.join(MANIFEST))
         .map_err(|e| format!("{MANIFEST}: {e} (run this in a mod's folder)"))?;
     let manifest = Manifest::parse(&manifest_text)?;
+    // A two-sided mod: its server half is the crate in server/, packed as server.wasm.
+    let server_wasm = if manifest.two_sided() {
+        if !root.join("server/Cargo.toml").exists() {
+            return Err(
+                "a two-sided mod (side \"both\", api \"0.3\") has its server half's crate in server/"
+                    .into(),
+            );
+        }
+        let (wasm, _) = compile(&root.join("server"), release)?;
+        manifest.check_imports(component_imports(&wasm)?.iter().map(String::as_str))?;
+        Some(wasm)
+    } else {
+        None
+    };
     let (wasm, target_dir) = if root.join("Cargo.toml").exists() {
         let (wasm, target) = compile(root, release)?;
         // The game refuses a component importing capabilities the manifest lacks.
@@ -205,7 +219,12 @@ fn build_in(root: &Path, release: bool) -> Result<PathBuf, String> {
     let path = dir.join(format!("{}.hmod", manifest.id));
     // Write then rename, so a running game never reads half a file.
     let partial = path.with_extension("hmod.partial");
-    let bytes = Package::write_files(&manifest_text, wasm.as_deref(), &files)?;
+    let bytes = Package::write_halves(
+        &manifest_text,
+        wasm.as_deref(),
+        server_wasm.as_deref(),
+        &files,
+    )?;
     std::fs::write(&partial, bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&partial, &path).map_err(|e| e.to_string())?;
     Ok(path)
@@ -297,6 +316,13 @@ fn test(args: &[String]) -> Result<(), String> {
             )
         })?
         .filter_map(|e| Some(e.ok()?.path()))
+        // A two-sided mod's server half: tests/server/<name>.toml.
+        .chain(
+            std::fs::read_dir("tests/server")
+                .into_iter()
+                .flatten()
+                .filter_map(|e| Some(e.ok()?.path())),
+        )
         .filter(|p| p.extension().is_some_and(|e| e == "toml"))
         .filter(|p| filter.is_none_or(|f| p.to_string_lossy().contains(f)))
         .collect();
@@ -315,7 +341,12 @@ fn test(args: &[String]) -> Result<(), String> {
             .map_err(|e| e.to_string())
             .and_then(|text| Script::parse(&text))
             .and_then(|script| {
-                let mut game = TestGame::load(&hmod)?;
+                let server_half = path.parent().is_some_and(|d| d.ends_with("server"));
+                let mut game = if server_half {
+                    TestGame::load_server_half(&hmod)?
+                } else {
+                    TestGame::load(&hmod)?
+                };
                 script.run(&mut game)?;
                 Ok(script.steps.len())
             });

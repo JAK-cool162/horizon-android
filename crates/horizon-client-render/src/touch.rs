@@ -8,7 +8,7 @@ use std::{
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 mod custom;
 mod editor;
-pub use custom::{CustomButton, mod_key, set_mod_keys};
+pub use custom::{CustomButton, WHEEL, mod_key, set_mod_keys};
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
 /// Entity-placement items retain short-tap placement, like building blocks.

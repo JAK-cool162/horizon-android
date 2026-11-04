@@ -10,10 +10,6 @@ mod game;
 mod game_launch;
 #[path = "android/import_plan.rs"]
 mod import_plan;
-#[path = "android/thumbnails.rs"]
-mod thumbnails;
-#[path = "android/project_page.rs"]
-mod project_page;
 #[path = "android/launcher.rs"]
 mod launcher;
 #[path = "android/launcher_style.rs"]
@@ -22,8 +18,12 @@ mod launcher_style;
 mod native_build;
 #[path = "android/native_build_plan.rs"]
 mod native_build_plan;
+#[path = "android/project_page.rs"]
+mod project_page;
 #[path = "android/sealed_box.rs"]
 mod sealed_box;
+#[path = "android/thumbnails.rs"]
+mod thumbnails;
 // Share the desktop launcher's actual search, compatibility checks, downloads,
 // dependency resolution and Java content porting; GPUI itself is desktop-only.
 // These files are formatted in the launcher's separate Rust 2021 workspace.
