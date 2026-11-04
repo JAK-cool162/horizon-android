@@ -420,36 +420,25 @@ pub(super) struct RunningModKey {
 
 #[cfg(feature = "mods")]
 impl Game<'_> {
-    /// The running mods' block outlines (`render.set-outlines`) as lines: each
-    /// edge two outlined blocks share drawn once (the first mod's colour), the
-    /// depth-tested ones with the gizmos and the others over everything.
+    /// The running mods' block outlines (`render.set-outlines`) as lines: the
+    /// outline of the outlined blocks together (`outline_edges`), each edge in
+    /// the colour of the first mod's block beside it, the depth-tested ones
+    /// with the gizmos and the others over everything.
     pub(super) fn mod_outline_lines(
         &self,
         camera: [f64; 3],
         lines: &mut Vec<horizon_client::gizmos::Line>,
         on_top: &mut Vec<horizon_client::gizmos::Line>,
     ) {
-        /// Lines drawn at most, over every mod.
-        const EDGES: usize = 8192;
-        let mut edges = std::collections::BTreeMap::new();
-        for o in self.mods.mods.outlines() {
-            let p = [o.x, o.y, o.z];
-            for axis in 0..3 {
-                let (a, b) = ((axis + 1) % 3, (axis + 2) % 3);
-                for (da, db) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let mut start = p;
-                    start[a] += da;
-                    start[b] += db;
-                    edges.entry((start, axis)).or_insert((o.color, o.through));
-                }
-            }
-            if edges.len() >= EDGES {
-                break;
-            }
+        /// Blocks outlined at most, over every mod.
+        const BLOCKS: usize = 4096;
+        let mut cells = std::collections::HashMap::new();
+        for o in self.mods.mods.outlines().take(BLOCKS) {
+            cells.entry([o.x, o.y, o.z]).or_insert((o.color, o.through));
         }
         // A hair toward the camera, so a line on a block's face isn't lost in it.
         let toward = |p: [f64; 3]| std::array::from_fn(|i| camera[i] + (p[i] - camera[i]) * 0.996);
-        for ((start, axis), (color, through)) in edges {
+        for (start, axis, (color, through)) in outline_edges(&cells) {
             let from = start.map(f64::from);
             let mut to = from;
             to[axis] += 1.0;
@@ -1662,5 +1651,88 @@ mod tests {
         // No folder: no rows.
         assert!(not_built(&dir.join("missing"), "", &[]).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// The outline of a set of blocks together: the unit edges (lattice start, axis) where its
+/// surface turns, each with the value of a block beside it. Of the four blocks around an edge,
+/// one or three in the set is a corner, two diagonal ones a crease; two side by side are a flat
+/// face and four are inside, so those edges aren't drawn, nor are a cube's edges between
+/// neighbours: a vein reads as one shape, not a grid.
+#[cfg_attr(not(feature = "mods"), allow(dead_code))]
+fn outline_edges<V: Copy>(
+    cells: &std::collections::HashMap<[i32; 3], V>,
+) -> Vec<([i32; 3], usize, V)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let mut keys: Vec<&[i32; 3]> = cells.keys().collect();
+    keys.sort();
+    for p in keys {
+        for axis in 0..3 {
+            let (a, b) = ((axis + 1) % 3, (axis + 2) % 3);
+            for (da, db) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let mut start = *p;
+                start[a] += da;
+                start[b] += db;
+                if !seen.insert((start, axis)) {
+                    continue;
+                }
+                // The four blocks sharing the edge: offsets 0 and -1 across it.
+                let around = [(0, 0), (-1, 0), (0, -1), (-1, -1)].map(|(oa, ob)| {
+                    let mut c = start;
+                    c[a] += oa;
+                    c[b] += ob;
+                    cells.get(&c).copied()
+                });
+                let filled = around.iter().filter(|c| c.is_some()).count();
+                let diagonal = filled == 2 && (around[0].is_some() == around[3].is_some());
+                if filled == 1 || filled == 3 || diagonal {
+                    if let Some(v) = around.iter().flatten().next() {
+                        out.push((start, axis, *v));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::outline_edges;
+    use std::collections::HashMap;
+
+    fn edges(blocks: &[[i32; 3]]) -> Vec<([i32; 3], usize)> {
+        let cells: HashMap<[i32; 3], ()> = blocks.iter().map(|b| (*b, ())).collect();
+        let mut e: Vec<_> = outline_edges(&cells)
+            .into_iter()
+            .map(|(s, a, ())| (s, a))
+            .collect();
+        e.sort();
+        e
+    }
+
+    #[test]
+    fn blocks_together_are_outlined_as_one_shape() {
+        // One block: its twelve edges.
+        assert_eq!(edges(&[[0, 0, 0]]).len(), 12);
+        // Two side by side make a 2x1x1 box: 8 unit edges along x, 4 along y and 4 along z
+        // at its ends, and none where they meet (x = 1).
+        let pair = edges(&[[0, 0, 0], [1, 0, 0]]);
+        assert_eq!(pair.len(), 16);
+        assert!(pair.iter().all(|(s, a)| *a == 0 || s[0] != 1));
+        // A 2x2x2 cube: its 12 edges, each two units long; nothing inside.
+        let mut cube = Vec::new();
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    cube.push([x, y, z]);
+                }
+            }
+        }
+        assert_eq!(edges(&cube).len(), 24);
+        // Two blocks touching only along an edge: it's drawn (a crease), as are both cubes'
+        // other edges.
+        assert_eq!(edges(&[[0, 0, 0], [1, 1, 0]]).len(), 23);
     }
 }

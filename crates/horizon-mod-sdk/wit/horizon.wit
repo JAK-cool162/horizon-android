@@ -376,8 +376,9 @@ interface render {
         /// behind them, as the block selection outline is.
         through: bool,
     }
-    /// Replaces the mod's block outlines: up to 1024, drawn every frame in the world (edges
-    /// two blocks share drawn once), hidden with the HUD (F1). An empty list removes them.
+    /// Replaces the mod's block outlines: up to 1024, drawn every frame in the world as one
+    /// shape (only the edges where the blocks' surface turns, not each block's), hidden with
+    /// the HUD (F1). An empty list removes them.
     /// Level 10.
     set-outlines: func(outlines: list<outline>);
     /// Replaces the mod's HUD shapes: up to 1024, drawn every frame in

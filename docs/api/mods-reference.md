@@ -504,7 +504,7 @@ A block's outline in the world.
 
 | Function | Signature | What it does |
 | --- | --- | --- |
-| `set-outlines` | `func(outlines: list<outline>)` | Replaces the mod's block outlines: up to 1024, drawn every frame in the world (edges two blocks share drawn once), hidden with the HUD (F1). An empty list removes them. Level 10. |
+| `set-outlines` | `func(outlines: list<outline>)` | Replaces the mod's block outlines: up to 1024, drawn every frame in the world as one shape (only the edges where the blocks' surface turns, not each block's), hidden with the HUD (F1). An empty list removes them. Level 10. |
 | `set-hud` | `func(shapes: list<shape>)` | Replaces the mod's HUD shapes: up to 1024, drawn every frame in order over the HUD (after the hotbar, under chat and screens), hidden with the HUD (F1). An empty list removes them. |
 | `gui-size` | `func() -> tuple<f32, f32>` | The screen's size in GUI pixels (width, height), as of this tick. |
 | `shake` | `func(strength: f32, seconds: f32)` | Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that fades out over `seconds` (at most 10). Jolts add up to 1. The view turns, the player doesn't, and the player's Distortion Effects option scales it (0 turns it off). |
