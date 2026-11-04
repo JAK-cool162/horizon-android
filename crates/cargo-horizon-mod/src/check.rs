@@ -285,6 +285,9 @@ fn play(path: &Path, report: &mut Report) -> Result<(), String> {
                 positions.len(),
                 if drops { " with drops" } else { "" }
             ),
+            Output::MineBlocks {
+                player, positions, ..
+            } => format!("mined {} block(s) as {player}", positions.len()),
             Output::BridgeCall { api, function, .. } => {
                 format!("called {function} of the native API {api}")
             }
