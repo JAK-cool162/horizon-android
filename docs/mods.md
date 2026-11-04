@@ -376,9 +376,12 @@ The Convert page (and Files > Mods) has two converters:
   the mod (a jar decompiled with CFR), writes the port with the SDK, builds and tests it with
   `cargo horizon-mod` until both pass, and answers with the `.hmod` and a `REPORT.md` of what it
   left out. It uses the fork and token set up for Build native, and the first repository secret
-  set of `GROQ_API_KEY` (an open model on Groq driven by aider; the variable `AI_MODEL` picks the
-  model, default `groq/moonshotai/kimi-k2-instruct-0905`) and `ANTHROPIC_API_KEY` (Claude Code).
-  Each run is billed to that key. What the `.hmod` API can't do stays out.
+  set of `ANTHROPIC_API_KEY` (Claude Code), `GEMINI_API_KEY` (Gemini through aider; its free tier
+  fits a conversion) and `GROQ_API_KEY` (an open model on Groq through aider; a conversion sends
+  about 35k tokens at once, more than Groq's free tier allows a minute). Setup > AI key saves a
+  copied key as the right secret; the repository variable `AI_MODEL` picks the model. Each run is
+  billed to that key. What the `.hmod` API can't do stays out, and a run whose AI wrote nothing
+  answers with the reason, never with the empty template.
 
 Converted mods are for personal use unless the original's licence allows sharing.
 

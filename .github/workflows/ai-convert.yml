@@ -3,10 +3,13 @@
 # sandboxed .hmod by an AI that builds and tests it with cargo horizon-mod until it passes.
 #
 # The AI is the first of these repository secrets that is set (Settings > Secrets and variables >
-# Actions); each run is billed to that key:
-#   GROQ_API_KEY       an open model on Groq (repository variable AI_MODEL, default
-#                      groq/moonshotai/kimi-k2-instruct-0905), driven by aider (Apache-2.0).
+# Actions, or the launcher's Setup > AI key); each run is billed to that key:
 #   ANTHROPIC_API_KEY  Claude Code (anthropics/claude-code-action).
+#   GEMINI_API_KEY     Google's Gemini (repository variable AI_MODEL, default gemini-2.5-flash),
+#                      driven by aider (Apache-2.0); its free tier fits a conversion.
+#   GROQ_API_KEY       an open model on Groq (AI_MODEL, else the best its key lists: see
+#                      .github/ai-convert/pick_model.py), driven by aider. A conversion sends about
+#                      35k tokens at once: more than Groq's free tier allows a minute.
 #
 # The result is the artifact `converted-hmod`: the .hmod and REPORT.md (what came over, what could
 # not and why), or REPORT.md alone when the mod needs what the .hmod API doesn't offer.
@@ -36,13 +39,15 @@ jobs:
       CARGO_TERM_COLOR: never
       FILE: ${{ inputs.file }}
       HAS_GROQ: ${{ secrets.GROQ_API_KEY != '' }}
+      HAS_GEMINI: ${{ secrets.GEMINI_API_KEY != '' }}
       HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - name: An AI key
         run: |
-          if [ "$HAS_GROQ" = true ]; then echo "AI=groq" >> "$GITHUB_ENV"
-          elif [ "$HAS_ANTHROPIC" = true ]; then echo "AI=anthropic" >> "$GITHUB_ENV"
-          else echo "::error::set the repository secret GROQ_API_KEY or ANTHROPIC_API_KEY"; exit 1; fi
+          if [ "$HAS_ANTHROPIC" = true ]; then echo "AI=anthropic" >> "$GITHUB_ENV"
+          elif [ "$HAS_GEMINI" = true ]; then echo "AI=gemini" >> "$GITHUB_ENV"
+          elif [ "$HAS_GROQ" = true ]; then echo "AI=groq" >> "$GITHUB_ENV"
+          else echo "::error::set the repository secret GEMINI_API_KEY, GROQ_API_KEY or ANTHROPIC_API_KEY"; exit 1; fi
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -92,22 +97,30 @@ jobs:
           # The empty template builds: what fails later is the port.
           (cd "work/project/$id" && cargo horizon-mod build >/dev/null)
 
-      # Groq: aider writes the port and runs the build and tests after each edit to fix them.
-      - name: An open model on Groq ports the mod (aider)
-        if: env.AI == 'groq'
+      # Gemini or Groq: aider writes the port and runs the build and tests after each edit to fix
+      # them. Only a port the AI wrote leaves: never the untouched template.
+      - name: Gemini or an open model on Groq ports the mod (aider)
+        if: env.AI == 'gemini' || env.AI == 'groq'
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WANTED: ${{ vars.AI_MODEL }}
         run: |
           set -euo pipefail
-          # The best coding model this key can use now (Groq's list changes), unless AI_MODEL says.
-          model=$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
-            | python3 .github/ai-convert/pick_model.py "$WANTED")
+          if [ "$AI" = gemini ]; then
+            name="${WANTED:-gemini-2.5-flash}"
+            model="gemini/${name#gemini/}"
+          else
+            # The best coding model this key can use now (Groq's list changes), unless AI_MODEL says.
+            model="groq/$(curl -sS -H "Authorization: Bearer $GROQ_API_KEY" https://api.groq.com/openai/v1/models \
+              | python3 .github/ai-convert/pick_model.py "$WANTED")"
+          fi
           echo "Model: $model"
           python3 -m venv /tmp/aider
           /tmp/aider/bin/pip install --quiet aider-chat
           cd "work/project/$MOD_ID"
-          /tmp/aider/bin/aider --model "groq/$model" --yes-always --no-git --no-auto-commits \
+          cp src/lib.rs /tmp/template-lib.rs
+          /tmp/aider/bin/aider --model "$model" --yes-always --no-git --no-auto-commits \
             --no-show-model-warnings --no-check-update --analytics-disable --map-tokens 0 \
             --read ../../context.md --read ../../hapi.md \
             --read "$GITHUB_WORKSPACE/docs/api/mods-reference.md" \
@@ -116,7 +129,23 @@ jobs:
             --read "$GITHUB_WORKSPACE/crates/horizon-mod-sdk/examples/spawn-guard/src/lib.rs" \
             --test-cmd "cargo horizon-mod build && cargo horizon-mod test" --auto-test \
             --message-file "$GITHUB_WORKSPACE/.github/ai-convert/task.md" \
-            horizon-mod.toml src/lib.rs tests/hello.toml REPORT.md || true
+            horizon-mod.toml src/lib.rs tests/hello.toml REPORT.md 2>&1 | tee /tmp/aider.log || true
+          if cmp -s src/lib.rs /tmp/template-lib.rs; then
+            # The AI never wrote the port: say why in words the player can act on.
+            if grep -q "tokens per minute\|TPM" /tmp/aider.log; then
+              reason="The AI key's plan is too small for a conversion: it sends about 35,000 tokens at once and the plan allows fewer a minute (Groq's free tier allows 8,000). Use a free Gemini key (aistudio.google.com) or Groq's Dev tier."
+            elif grep -qi "rate.limit\|quota\|429" /tmp/aider.log; then
+              reason="The AI key hit its rate limit or quota: wait a little and try again, or check the key's plan."
+            elif grep -qi "model_not_found\|does not exist\|NotFoundError" /tmp/aider.log; then
+              reason="The AI model isn't available to this key: remove the repository variable AI_MODEL, or set one the key can use."
+            elif grep -qi "auth\|invalid api key\|401\|403" /tmp/aider.log; then
+              reason="The AI key was refused: set it again in Setup > AI key."
+            else
+              reason="The AI didn't write the port: open this run's log for what it said."
+            fi
+            echo "$reason" > ../../out/REPORT.md
+            exit 0
+          fi
           if cargo horizon-mod build && cargo horizon-mod test; then
             cp target/horizon-mod/*.hmod ../../out/ || true
           else

@@ -469,9 +469,9 @@ fn follow(api: &Api, game: &Path, record: &Record, set: &dyn Fn(String)) -> Resu
 const CONVERT_WORKFLOW: &str = "ai-convert.yml";
 const CONVERT_BRANCH: &str = "ai-convert";
 const CONVERT_ARTIFACT: &str = "converted-hmod";
-/// The AI keys the workflow takes, either one: Groq's (an open model through aider) or
-/// Anthropic's (Claude Code).
-const AI_SECRETS: [&str; 2] = ["GROQ_API_KEY", "ANTHROPIC_API_KEY"];
+/// The AI keys the workflow takes, any one: Gemini's or Groq's (through aider) or Anthropic's
+/// (Claude Code).
+const AI_SECRETS: [&str; 3] = ["GEMINI_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY"];
 const MAX_CONVERTED: u64 = 64 << 20;
 
 /// A Java mod (.jar) or native mod (.hnmod) rewritten as a sandboxed .hmod by Claude Code on the
@@ -567,8 +567,8 @@ fn convert(
     }
     if !has_key {
         return Err(
-            "Add your Groq key first: copy it on console.groq.com, then tap Setup > Groq \
-             API key"
+            "Add your AI key first: copy a Gemini key (free at aistudio.google.com), then tap \
+             Setup > AI key"
                 .into(),
         );
     }
@@ -690,17 +690,34 @@ fn retry<T>(mut call: impl FnMut() -> Result<T, String>) -> Result<T, String> {
     }
 }
 
-/// Whether `key` looks like a Groq API key (`gsk_` and letters and digits).
-pub fn groq_key(key: &str) -> bool {
-    key.starts_with("gsk_")
-        && (20..=200).contains(&key.len())
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+/// The AI provider an API key belongs to, by its prefix, and the secret the workflow reads it
+/// from: Gemini's (`AIza`), Groq's (`gsk_`) or Anthropic's (`sk-ant-`).
+pub fn ai_key(key: &str) -> Option<(&'static str, &'static str)> {
+    let plain = (20..=240).contains(&key.len())
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if !plain {
+        return None;
+    }
+    if key.starts_with("AIza") {
+        Some(("Gemini", AI_SECRETS[0]))
+    } else if key.starts_with("gsk_") {
+        Some(("Groq", AI_SECRETS[1]))
+    } else if key.starts_with("sk-ant-") {
+        Some(("Anthropic", AI_SECRETS[2]))
+    } else {
+        None
+    }
 }
 
-/// Saves a Groq key as the fork's Actions secret GROQ_API_KEY, sealed with the repository's
-/// public key as GitHub asks: it goes to GitHub only and is not kept on the phone. The result
-/// reaches the status line.
+/// Saves an AI key as the fork's Actions secret its provider's conversion reads, sealed with the
+/// repository's public key as GitHub asks: it goes to GitHub only and is not kept on the phone.
+/// The result reaches the status line.
 pub fn save_ai_key(repo: String, token: String, key: String) {
+    let Some((provider, secret)) = ai_key(&key) else {
+        return;
+    };
     std::thread::spawn(move || {
         let api = Api::new(repo, token);
         let result = (|| -> Result<(), String> {
@@ -719,7 +736,7 @@ pub fn save_ai_key(repo: String, token: String, key: String) {
             let sealed = crate::sealed_box::seal(&sealing, key.as_bytes())?;
             api.send(
                 "PUT",
-                &format!("/actions/secrets/{}", AI_SECRETS[0]),
+                &format!("/actions/secrets/{secret}"),
                 serde_json::json!({"encrypted_value": plan::base64(&sealed), "key_id": key_id}),
             )
             .map_err(|e| denied(e, "Secrets"))?;
@@ -727,10 +744,11 @@ pub fn save_ai_key(repo: String, token: String, key: String) {
         })();
         crate::documents::notify(
             match result {
-                Ok(()) => "Groq key saved on your GitHub fork (secret GROQ_API_KEY), not on this \
-                           phone. Convert with AI is ready."
-                    .to_owned(),
-                Err(e) => format!("Could not save the Groq key: {e}"),
+                Ok(()) => format!(
+                    "{provider} key saved on your GitHub fork (secret {secret}), not on this \
+                     phone. Convert with AI is ready."
+                ),
+                Err(e) => format!("Could not save the {provider} key: {e}"),
             },
             false,
         );

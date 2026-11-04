@@ -78,7 +78,7 @@ pub(super) enum Action {
     AiConvert,
     /// Setup's GitHub token row: the token on the clipboard, saved.
     TokenFromClipboard,
-    /// Setup's Groq key row: the key on the clipboard, saved as the fork's secret.
+    /// Setup's AI key row: the key on the clipboard, saved as the fork's secret.
     GroqKeyFromClipboard,
     /// The AI conversion's run on GitHub.
     OpenAiRun,
@@ -1627,7 +1627,8 @@ impl Launcher {
                     ".jar or .hnmod to Horizon mod, code included",
                     "An AI reads the mod, writes the Horizon version, then builds and tests it \
                      until it works (5-20 min). It runs on your GitHub fork (Setup: repository \
-                     and token) with your own Groq key: copy it, then tap Setup > Groq API key.",
+                     and token) with your own AI key: a free Gemini key \
+                     (aistudio.google.com) works; copy it, then tap Setup > AI key.",
                     ai_status,
                     if ai.running() {
                         "Open the run on GitHub"
@@ -1849,8 +1850,8 @@ impl Launcher {
                     Action::TokenFromClipboard,
                 ),
                 (
-                    "Groq API key (AI convert)",
-                    "Copy it on console.groq.com, then tap: saved on your fork, not here".into(),
+                    "AI key (Convert with AI)",
+                    "Copy a Gemini, Groq or Anthropic key, then tap: saved on your fork".into(),
                     Action::GroqKeyFromClipboard,
                 ),
             ]
@@ -2447,18 +2448,19 @@ impl Launcher {
             Some(Action::GroqKeyFromClipboard) => {
                 let key = crate::platform::clipboard_get()
                     .map(|k| k.trim().to_owned())
-                    .filter(|k| crate::native_build::groq_key(k));
+                    .filter(|k| crate::native_build::ai_key(k).is_some());
                 let repo = crate::native_build::repository(&self.catalog.config.github_repo);
                 self.catalog.status = match (key, repo, crate::native_build::token()) {
-                    (None, ..) => "The clipboard has no Groq key: copy it on console.groq.com \
-                                   (it starts with gsk_), then tap Groq API key again"
+                    (None, ..) => "The clipboard has no AI key: copy a Gemini key (AIza..., free \
+                                   at aistudio.google.com), a Groq key (gsk_...) or an \
+                                   Anthropic key (sk-ant-...), then tap AI key again"
                         .into(),
                     (Some(_), None, _) | (Some(_), _, None) => {
                         "Set the GitHub token first: the key is saved on your fork".into()
                     }
                     (Some(key), Some(repo), Some(token)) => {
                         crate::native_build::save_ai_key(repo, token, key);
-                        "Saving the Groq key on your GitHub fork...".into()
+                        "Saving the AI key on your GitHub fork...".into()
                     }
                 };
             }
