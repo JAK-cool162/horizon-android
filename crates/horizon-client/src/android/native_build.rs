@@ -585,7 +585,8 @@ fn convert(
             "POST",
             "/git/refs",
             serde_json::json!({"ref": format!("refs/heads/{CONVERT_BRANCH}"), "sha": base}),
-        )?;
+        )
+        .map_err(|e| denied(e, "Contents"))?;
     }
     set(format!("Uploading {name}..."));
     let path = format!("convert/{name}");
@@ -601,14 +602,17 @@ fn convert(
     if let Some(sha) = existing {
         body["sha"] = sha.into();
     }
-    api.send("PUT", &format!("/contents/{path}"), body)?;
+    api.send("PUT", &format!("/contents/{path}"), body)
+        .map_err(|e| denied(e, "Contents"))?;
     let request = request_tag("convert");
     set("Starting the AI conversion on GitHub...".into());
-    let (run, link) = api.dispatch(
-        CONVERT_WORKFLOW,
-        serde_json::json!({"ref": plan::BASE_BRANCH, "inputs": {"file": path, "request": request}}),
-        &request,
-    )?;
+    let (run, link) = api
+        .dispatch(
+            CONVERT_WORKFLOW,
+            serde_json::json!({"ref": plan::BASE_BRANCH, "inputs": {"file": path, "request": request}}),
+            &request,
+        )
+        .map_err(|e| denied(e, "Actions"))?;
     url(link);
     let started = Instant::now();
     loop {
@@ -657,6 +661,20 @@ fn convert(
     let result = install_converted(&archive, mods);
     let _ = std::fs::remove_file(&archive);
     result
+}
+
+/// A refusal of the step that needs `permission`, named: GitHub's fine-grained tokens add a
+/// permission as Read-only, and a 403 alone doesn't say which one to change.
+fn denied(error: String, permission: &str) -> String {
+    if error.contains("403") {
+        format!(
+            "GitHub refused (403): set the token's {permission} permission to \"Read and \
+             write\" (github.com > Settings > Developer settings > Fine-grained tokens > your \
+             token > Edit); the saved token stays the same"
+        )
+    } else {
+        error
+    }
 }
 
 /// A plain .jar or .hnmod file name.
