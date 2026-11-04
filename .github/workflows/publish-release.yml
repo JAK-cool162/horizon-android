@@ -2,6 +2,11 @@
 # deletes the branch. The branch holds only this file and `release/`: the release's source is
 # the commit in `release/TARGET`. A push of the branch runs it; so does running it by hand on
 # that branch (Actions > Publish release assets > Run workflow, branch release-assets/<tag>).
+#
+# With `release/exporters/` (horizon-prepare's compiled exporters: only Horizon's own classes and
+# their manifest), the release also gets the PC game: Linux and Windows folders built from
+# `release/TARGET` with the mod runtime, and with the `.hnmod`s in `release/native/` applied.
+# A PC build that fails leaves the release without it; the rest still publishes.
 name: Publish release assets
 on:
   push:
@@ -10,17 +15,132 @@ on:
 permissions:
   contents: write
 jobs:
-  publish:
+  plan:
     if: startsWith(github.ref_name, 'release-assets/')
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.plan.outputs.target }}
+      pc: ${{ steps.plan.outputs.pc }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          echo "target=$(cat release/TARGET)" >> "$GITHUB_OUTPUT"
+          tag="${GITHUB_REF_NAME#release-assets/}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          if [ -f release/exporters/manifest.json ]; then echo "pc=true"; else echo "pc=false"; fi >> "$GITHUB_OUTPUT"
+
+  pc:
+    needs: plan
+    if: needs.plan.outputs.pc == 'true'
+    continue-on-error: true
+    name: PC build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            dir: horizon-linux-x86_64
+            asset: horizon-linux-x86_64.tar.gz
+          - name: windows
+            os: windows-latest
+            dir: horizon-windows-x64
+            asset: horizon-windows-x64.zip
+            exe: .exe
+            # The C runtime linked in, so the game runs without the Visual C++ redistributable.
+            rustflags: -C target-feature=+crt-static
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      # The version built in (no `v`), as release.yml builds Horizon's own releases.
+      HORIZON_VERSION: ${{ needs.plan.outputs.version }}
+      CARGO_TERM_COLOR: never
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: The release's files (exporters, native mods)
+        uses: actions/checkout@v4
+        with:
+          path: assets
+      - name: The source (release/TARGET)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.target }}
+          path: src
+          persist-credentials: false
+      - name: Rust (the toolchain rust-toolchain.toml pins)
+        working-directory: src
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: ALSA and udev headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      - name: Native mods applied (a modded copy of the source)
+        working-directory: src
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mods=(../assets/release/native/*.hnmod)
+          py=$(command -v python3 || command -v python)
+          if [ ${#mods[@]} -gt 0 ]; then
+            "$py" tools/android_native_mods.py stage "${mods[@]}" --trust-native-code --allow-version-mismatch --out ../stage || {
+              echo "::warning::the native mods did not apply here; building without them"
+              rm -rf ../stage && mkdir -p ../stage && git archive HEAD | tar -x -C ../stage
+            }
+          else
+            mkdir -p ../stage && git archive HEAD | tar -x -C ../stage
+          fi
+      - name: Build the game (mod runtime on), horizon-ctl, horizon-prepare and horizon-server
+        working-directory: stage
+        run: >-
+          cargo build --release --locked
+          -p horizon-client --features horizon-client/mods --bin horizon-client --bin horizon-ctl
+          -p horizon-prepare --bin horizon-prepare -p horizon-server --bin horizon-server
+      - name: Package
+        working-directory: src
+        run: |
+          set -euo pipefail
+          cp -R ../assets/release/exporters exporters
+          cargo run --locked -p xtask -- package "../stage/target/release/horizon-client${{ matrix.exe }}" "dist/${{ matrix.dir }}"
+          cd dist
+          case "${{ matrix.asset }}" in
+            *.tar.gz) tar czf "${{ matrix.asset }}" "${{ matrix.dir }}" ;;
+            *) 7z a -tzip "${{ matrix.asset }}" "${{ matrix.dir }}" > /dev/null ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: src/dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [plan, pc]
+    if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: The PC builds that succeeded
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: pc
+          merge-multiple: true
       - name: Create the release with its files
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          tag="${GITHUB_REF_NAME#release-assets/}"
-          gh release create "$tag" release/files/* \
+          set -euo pipefail
+          shopt -s nullglob
+          for f in pc/*; do cp "$f" release/files/; done
+          (cd release/files && sha256sum $(ls | grep -v '^SHA256SUMS.txt$') > SHA256SUMS.txt)
+          gh release create "$TAG" release/files/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$(cat release/TARGET)" \
             --title "$(cat release/TITLE)" \
