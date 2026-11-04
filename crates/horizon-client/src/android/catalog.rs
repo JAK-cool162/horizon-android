@@ -1137,10 +1137,19 @@ impl Catalog {
                 }
                 if self.editing == Some("github_token") {
                     let token = std::mem::take(&mut self.github_token_text);
-                    self.status = match crate::native_build::save_token(&token) {
-                        Ok(()) if token.trim().is_empty() => "GitHub token removed".into(),
-                        Ok(()) => "GitHub token saved, encrypted with the Android Keystore".into(),
-                        Err(e) => format!("Could not save the GitHub token: {e}"),
+                    // An empty field (a paste that never arrived, the keyboard closed) keeps the
+                    // saved token: it is never removed by accident.
+                    self.status = if token.trim().is_empty() {
+                        "GitHub token unchanged: copy it on GitHub, then tap GitHub token in \
+                         Setup to paste it"
+                            .into()
+                    } else {
+                        match crate::native_build::save_token(&token) {
+                            Ok(()) => {
+                                "GitHub token saved, encrypted with the Android Keystore".into()
+                            }
+                            Err(e) => format!("Could not save the GitHub token: {e}"),
+                        }
                     };
                     self.github_token_saved = crate::native_build::token().is_some();
                 }

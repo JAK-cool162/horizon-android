@@ -76,6 +76,8 @@ pub(super) enum Action {
     ConfirmBuildNative,
     /// "Convert with AI": pick a .jar or .hnmod for the GitHub conversion.
     AiConvert,
+    /// Setup's GitHub token row: the token on the clipboard, saved.
+    TokenFromClipboard,
     /// The AI conversion's run on GitHub.
     OpenAiRun,
     InstallNative,
@@ -1693,6 +1695,12 @@ impl Launcher {
                 h - 130.0,
                 (23.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
+            // A plate under the list: its labels would sit on the sunset's bright bands.
+            style::card(
+                &mut ui,
+                [16.0, 180.0, w - 32.0, h - 130.0 - 180.0 + 12.0],
+                color::CARD,
+            );
             let clip = (ui.mark(), self.targets.len(), 185.0);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -1832,14 +1840,12 @@ impl Launcher {
                 ),
                 (
                     "GitHub token",
-                    if self.catalog.editing == Some("github_token") {
-                        "*".repeat(self.catalog.github_token_text.chars().count())
-                    } else if self.catalog.github_token_saved {
-                        "Saved / tap to replace (empty removes it)".into()
+                    if self.catalog.github_token_saved {
+                        "Saved / copy a new one on GitHub, then tap to replace".into()
                     } else {
-                        "Not set / fine-grained, Contents + Actions".into()
+                        "Not set / copy it on GitHub, then tap here to paste".into()
                     },
-                    Action::Field("github_token"),
+                    Action::TokenFromClipboard,
                 ),
             ]
             .into_iter()
@@ -2413,6 +2419,24 @@ impl Launcher {
             Some(Action::OpenTokenPage) => {
                 let repo = crate::native_build::repository(&self.catalog.config.github_repo);
                 crate::platform::open_url(&crate::native_build_plan::token_page(repo.as_deref()));
+            }
+            Some(Action::TokenFromClipboard) => {
+                // Read from the clipboard, not typed: Android's paste never reaches the
+                // launcher's own text fields, and a 90-character token is no fun to type.
+                let pasted = crate::platform::clipboard_get();
+                self.catalog.status =
+                    match pasted.as_deref().and_then(crate::native_build_plan::token) {
+                        Some(token) => match crate::native_build::save_token(token) {
+                            Ok(()) => {
+                                self.catalog.github_token_saved = true;
+                                "GitHub token saved, encrypted with the Android Keystore".into()
+                            }
+                            Err(e) => format!("Could not save the GitHub token: {e}"),
+                        },
+                        None => "The clipboard has no GitHub token: copy it on GitHub first (it \
+                                 starts with github_pat_), then tap GitHub token again"
+                            .into(),
+                    };
             }
             Some(Action::PasteToken) => {
                 let pasted = crate::platform::clipboard_get();
