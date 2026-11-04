@@ -71,6 +71,13 @@ pub(super) struct ModsState {
     /// that level's next tick.
     #[cfg(feature = "mods")]
     pub(super) block_writes: Vec<(String, super::server_mods::ModWrite)>,
+    /// Server mods' `world.mine-blocks`: the player's UUID and the blocks, mined
+    /// as that player when their level is in place.
+    #[cfg(feature = "mods")]
+    pub(super) mines: Vec<(String, Vec<(i32, i32, i32)>)>,
+    /// A `world.mine-blocks` is being mined: server mods don't hear its blocks.
+    #[cfg(feature = "mods")]
+    pub(super) mining: bool,
     /// `command.run` lines for this window's own world, run on the next tick:
     /// run at once, their chat lines would reach the mods while their output
     /// is still being shown, and a mod answering its own lines would recurse.
@@ -317,6 +324,14 @@ fn register_mob_effects(mods: &[horizon_client::mod_content::ContentMod]) {
 /// A build without the `mods` feature: no mod runs.
 #[cfg(not(feature = "mods"))]
 impl Game<'_> {
+    /// No WebAssembly mod runs, so none outlines blocks.
+    pub(super) fn mod_outline_lines(
+        &self,
+        _camera: [f64; 3],
+        _lines: &mut Vec<horizon_client::gizmos::Line>,
+        _on_top: &mut Vec<horizon_client::gizmos::Line>,
+    ) {
+    }
     /// No WebAssembly mod runs, so none has keys.
     #[allow(dead_code)]
     pub(super) fn running_mod_keys(&self) -> Vec<RunningModKey> {
@@ -405,6 +420,52 @@ pub(super) struct RunningModKey {
 
 #[cfg(feature = "mods")]
 impl Game<'_> {
+    /// The running mods' block outlines (`render.set-outlines`) as lines: each
+    /// edge two outlined blocks share drawn once (the first mod's colour), the
+    /// depth-tested ones with the gizmos and the others over everything.
+    pub(super) fn mod_outline_lines(
+        &self,
+        camera: [f64; 3],
+        lines: &mut Vec<horizon_client::gizmos::Line>,
+        on_top: &mut Vec<horizon_client::gizmos::Line>,
+    ) {
+        /// Lines drawn at most, over every mod.
+        const EDGES: usize = 8192;
+        let mut edges = std::collections::BTreeMap::new();
+        for o in self.mods.mods.outlines() {
+            let p = [o.x, o.y, o.z];
+            for axis in 0..3 {
+                let (a, b) = ((axis + 1) % 3, (axis + 2) % 3);
+                for (da, db) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let mut start = p;
+                    start[a] += da;
+                    start[b] += db;
+                    edges.entry((start, axis)).or_insert((o.color, o.through));
+                }
+            }
+            if edges.len() >= EDGES {
+                break;
+            }
+        }
+        // A hair toward the camera, so a line on a block's face isn't lost in it.
+        let toward = |p: [f64; 3]| std::array::from_fn(|i| camera[i] + (p[i] - camera[i]) * 0.996);
+        for ((start, axis), (color, through)) in edges {
+            let from = start.map(f64::from);
+            let mut to = from;
+            to[axis] += 1.0;
+            let line = horizon_client::gizmos::Line {
+                start: toward(from),
+                end: toward(to),
+                color,
+                width: 3.0,
+            };
+            if through {
+                on_top.push(line);
+            } else {
+                lines.push(line);
+            }
+        }
+    }
     /// The running mods' keys, for a touch button that presses one.
     #[allow(dead_code)]
     pub(super) fn running_mod_keys(&self) -> Vec<RunningModKey> {
@@ -615,6 +676,7 @@ impl Game<'_> {
             clock,
             gui_size: self.gui_size(),
             held: self.mod_held(),
+            held_durability: self.mod_held_durability(),
             frame: self.frame_reading(),
             mappings,
             cps,
@@ -689,7 +751,10 @@ impl Game<'_> {
     fn mod_quiet_commands(&mut self, mod_id: String, lines: Vec<String>) {
         let lines: Vec<String> = lines
             .into_iter()
-            .filter(|l| vanilla_command(l.split(' ').next().unwrap_or_default()))
+            .filter(|l| {
+                let name = l.split(' ').next().unwrap_or_default();
+                vanilla_command(name) || self.server_command(name)
+            })
             .collect();
         match self.remote.as_ref().map(|r| r.quiet_commands) {
             Some(true) => {
@@ -710,6 +775,20 @@ impl Game<'_> {
             }
             None => self.mods.quiet.push((mod_id, lines)),
         }
+    }
+    /// A command of the server this window plays on that is not vanilla's
+    /// and that no mod of this window owns: a server mod's, which a client
+    /// mod may run there (their two halves talk this way).
+    fn server_command(&self, name: &str) -> bool {
+        let Some(remote) = &self.remote else {
+            return false;
+        };
+        let tree = &remote.chat_tree;
+        tree.nodes[0]
+            .children
+            .iter()
+            .any(|&c| tree.nodes[c].name() == name)
+            && !self.mods.mods.commands().any(|c| c == name)
     }
     /// A quiet batch in this window's own world, as a server runs one
     /// (game/lan_quiet.rs): each line as the player typing it, no chat, a
@@ -744,7 +823,9 @@ impl Game<'_> {
         let snapshot = self.mod_snapshot();
         self.mods.mods.set_snapshot(snapshot);
         self.serve_bridge();
+        self.lend_client_world();
         self.mods.mods.tick(self.ticks);
+        self.return_world();
         self.show_mod_output();
     }
     /// Restarts the dev mods rebuilt since the last check, once a second.
@@ -781,7 +862,9 @@ impl Game<'_> {
             let snapshot = self.mod_snapshot();
             self.mods.mods.set_snapshot(snapshot);
         }
+        self.lend_client_world();
         self.mods.mods.frame(elapsed.as_secs_f32());
+        self.return_world();
         self.show_mod_output();
     }
     /// `/command` typed in chat: true when a mod owns it.
@@ -792,7 +875,10 @@ impl Game<'_> {
         // The command may follow a teleport in the same tick.
         let snapshot = self.mod_snapshot();
         self.mods.mods.set_snapshot(snapshot);
-        if !self.mods.mods.command(command) {
+        self.lend_client_world();
+        let owned = self.mods.mods.command(command);
+        self.return_world();
+        if !owned {
             return false;
         }
         self.show_mod_output();
@@ -819,10 +905,11 @@ impl Game<'_> {
                 }
                 Output::Feedback { text, error: false } => Text::literal(text),
                 Output::Feedback { text, error: true } => Text::literal(text).with_color(text::RED),
-                // Vanilla's commands only: a mod running a mod command could loop.
+                // Vanilla's commands, and a server's own (its server mods'): a
+                // mod running this window's mod commands could loop.
                 Output::Command { line } => {
                     let name = line.split(' ').next().unwrap_or_default();
-                    if !vanilla_command(name) {
+                    if !vanilla_command(name) && !self.server_command(name) {
                         // Dropped.
                     } else if self.remote.is_some() {
                         // The server checks the player's permissions.
@@ -851,7 +938,8 @@ impl Game<'_> {
                 | Output::Broadcast { .. }
                 | Output::Reply { .. }
                 | Output::SetBlocks { .. }
-                | Output::BreakBlocks { .. }) => {
+                | Output::BreakBlocks { .. }
+                | Output::MineBlocks { .. }) => {
                     self.route_server_output(host.as_deref_mut(), server);
                     continue;
                 }

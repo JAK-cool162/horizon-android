@@ -326,6 +326,25 @@ radius. `kernel_size` 0 is none.
     "top": "carve", "bottom": "none", "rigid_junctions": true, "inflate": true } }
 ```
 
+#### GUI themes
+
+A content mod can recolour the game's GUI: `assets/<id>/horizon/gui_theme.json` gives a gradient
+from black to white, and every grey pixel of the GUI textures (buttons, slots, containers, the
+hotbar, the menus' panels) takes the gradient's colour at its brightness as the atlas is built;
+coloured pixels (icons, hearts, the XP bar) stay. Resource packs' GUI textures are recoloured the
+same way, the title's logo and packs' animated backgrounds are not. `label_color` replaces the
+dark grey vanilla draws containers' labels in, for a dark theme. The mod ships none of vanilla's
+art, so a theme follows whatever GUI the player's packs draw.
+
+```json
+{ "gradient": ["#06080f", "#0e1424", "#18223c", "#26365f", "#9db7ff"],
+  "max_saturation": 0.12,
+  "label_color": "#dfe7ff" }
+```
+
+`max_saturation` (0 to 1, default 0.12) is how grey a pixel must be to be recoloured. With two
+theme mods on, the first by id wins. It applies when the game starts or reloads its resources.
+
 ## Native mods
 
 Behaviour that needs code (a new key, a HUD, a tool that changes how mining works) is a native mod. It is a bundle of

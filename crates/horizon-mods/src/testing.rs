@@ -535,6 +535,9 @@ pub struct Expect {
     /// The Overworld blocks the mod broke with their loot during the step, in
     /// order, as `x y z state`.
     drops: Option<Vec<String>>,
+    /// Capability `world`'s `mine-blocks`: every block mined during the step, in order, as
+    /// `x y z state` (the overworld's, as `blocks` holds it; the player is `player`).
+    mined: Option<Vec<String>>,
     /// Capability `bridge`: every `bridge.call` during the step, in order, as
     /// `api function args`.
     calls: Option<Vec<String>>,
@@ -791,6 +794,7 @@ impl Step {
         }
         game.mods.take_world();
         let mut dropped = Vec::new();
+        let mut mined = Vec::new();
         for o in &out {
             match o {
                 Output::SetBlocks {
@@ -798,6 +802,15 @@ impl Step {
                 } if dimension == "minecraft:overworld" => {
                     for b in blocks {
                         game.world.insert((b.x, b.y, b.z), b.state.clone());
+                    }
+                }
+                Output::MineBlocks { positions, .. } => {
+                    for &(x, y, z) in positions {
+                        if let Some(state) = game.world.remove(&(x, y, z))
+                            && state != "minecraft:air"
+                        {
+                            mined.push(format!("{x} {y} {z} {state}"));
+                        }
                     }
                 }
                 Output::BreakBlocks {
@@ -915,6 +928,9 @@ impl Step {
         }
         if let Some(want) = &e.drops {
             same("drops", want, &dropped)?;
+        }
+        if let Some(want) = &e.mined {
+            same("mined", want, &mined)?;
         }
         if let Some(want) = &e.calls {
             same("calls", want, &calls)?;

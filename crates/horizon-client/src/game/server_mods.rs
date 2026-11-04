@@ -65,6 +65,7 @@ impl Game<'_> {
         false
     }
     pub(super) fn apply_mod_block_writes(&mut self) {}
+    pub(super) fn apply_mod_mines(&mut self) {}
 }
 
 #[cfg(feature = "mods")]
@@ -87,6 +88,10 @@ mod run {
     /// Blocks queued for levels that don't tick (another dimension, in-frame)
     /// are kept up to this many; the oldest go first.
     const MAX_QUEUED_WRITES: usize = 1 << 16;
+    /// `world.mine-blocks` calls kept for players whose level isn't in place.
+    const MAX_QUEUED_MINES: usize = 256;
+    /// How far from the player `world.mine-blocks` reaches, in blocks.
+    const MINE_REACH: f64 = 32.0;
 
     /// Capability `world`'s view during a call: the levels' chunks, moved out
     /// of the game for the call and back after it (no copy).
@@ -349,6 +354,7 @@ mod run {
             self.mods.players = players;
             self.show_mod_output();
             self.apply_mod_block_writes();
+            self.apply_mod_mines();
         }
 
         /// Players' command trees list the running server mods' commands
@@ -384,8 +390,24 @@ mod run {
             }));
         }
 
+        /// Lends the window's chunks to client mods' `game.get-block` for the
+        /// calls up to [`Game::return_world`], when a running client mod may read.
+        pub(in crate::game) fn lend_client_world(&mut self) {
+            if self.player.is_none() || !self.mods.mods.wants_client_world() {
+                return;
+            }
+            let dims = vec![(self.dim.id(), std::mem::take(&mut self.world.chunks))];
+            let registry = self.pack.assets.registry;
+            let biomes = self.res.biomes().clone();
+            self.mods.mods.lend_world(Box::new(LentWorld {
+                registry,
+                biomes,
+                dims,
+            }));
+        }
+
         /// Puts back the chunks [`Game::lend_world`] lent.
-        fn return_world(&mut self) {
+        pub(in crate::game) fn return_world(&mut self) {
             let Some(view) = self.mods.mods.take_world() else {
                 return;
             };
@@ -468,6 +490,80 @@ mod run {
             });
         }
 
+        /// Server mods' `world.mine-blocks` for the players in the level in
+        /// place, each as that player (`as_guest`); the others wait for theirs.
+        pub(in crate::game) fn apply_mod_mines(&mut self) {
+            if self.mods.mines.is_empty() {
+                return;
+            }
+            let Some(mut host) = self.lan.take() else {
+                return;
+            };
+            let here = self.dim.id();
+            let mut later = Vec::new();
+            for (player, positions) in std::mem::take(&mut self.mods.mines) {
+                let Some((conn, dimension)) = host
+                    .hub
+                    .guests
+                    .iter()
+                    .find(|g| uuid_string(g.uuid) == player)
+                    .map(|g| (g.conn, g.dimension.clone()))
+                else {
+                    // Gone: nothing to mine as.
+                    continue;
+                };
+                if dimension != here {
+                    later.push((player, positions));
+                    continue;
+                }
+                self.as_guest(&mut host, conn, |game| game.mine_as_player(&positions));
+            }
+            self.lan = Some(host);
+            self.mods.mines = later;
+        }
+
+        /// `positions` broken in turn as the player in place would break them
+        /// (`break_block`: their tool's loot and wear, exhaustion, statistics,
+        /// protection), until one is out of reach or what they hold changes.
+        fn mine_as_player(&mut self, positions: &[(i32, i32, i32)]) {
+            let Some(origin) = self.player.as_ref().map(|p| p.position) else {
+                return;
+            };
+            let held = |game: &Self| {
+                game.inventory[game.selected]
+                    .as_ref()
+                    .map(|s| s.item.clone())
+            };
+            let holding = held(self);
+            self.mods.mining = true;
+            for &(x, y, z) in positions {
+                let d = [
+                    x as f64 + 0.5 - origin.x,
+                    y as f64 + 0.5 - origin.y,
+                    z as f64 + 0.5 - origin.z,
+                ];
+                if d.iter().map(|v| v * v).sum::<f64>() > MINE_REACH * MINE_REACH {
+                    break;
+                }
+                if !self.world.loaded(x, z) {
+                    continue;
+                }
+                let state = self.world.block(x, y, z);
+                let facts = self.res.facts().get(state);
+                // Air, and a block no survival player breaks (bedrock).
+                if facts.name.ends_with("air") || (facts.hardness < 0.0 && !self.creative) {
+                    continue;
+                }
+                if let Err(e) = self.break_block([x, y, z]) {
+                    log::debug!("Horizon: a mod's mined block at {x} {y} {z}: {e:?}");
+                }
+                if held(self) != holding {
+                    break;
+                }
+            }
+            self.mods.mining = false;
+        }
+
         /// A player broke (or placed) `state` at `pos`: the player acting now.
         pub(in crate::game) fn mod_block_event(
             &mut self,
@@ -475,7 +571,7 @@ mod run {
             state: BlockStateId,
             placed: bool,
         ) {
-            if !self.hears_players() {
+            if !self.hears_players() || self.mods.mining {
                 return;
             }
             let who = self.lan_acting.map_or(Who::Local, Who::Conn);
@@ -641,6 +737,18 @@ mod run {
                             "Horizon: mod {name} set more blocks than wait for their level: {over} dropped"
                         );
                     }
+                }
+                Output::MineBlocks {
+                    name,
+                    player,
+                    positions,
+                } => {
+                    let queued = &mut self.mods.mines;
+                    if queued.len() >= MAX_QUEUED_MINES {
+                        log::warn!("Horizon: mod {name} mined more than wait for their level");
+                        queued.remove(0);
+                    }
+                    queued.push((player, positions));
                 }
                 Output::BreakBlocks {
                     name,

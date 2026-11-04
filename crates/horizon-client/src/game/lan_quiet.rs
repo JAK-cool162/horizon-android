@@ -104,6 +104,16 @@ impl Game<'_> {
     /// when it is refused or fails. A command that carries a chat message
     /// (`say`, `msg`...) is refused: it would need the player's signature.
     fn run_quiet_line(&mut self, conn: u32, line: &str) -> bool {
+        // A server mod's command, for every player whatever their level, as a
+        // typed one is (`guest_command`): a client mod's way to its server half.
+        if let Some(mut host) = self.lan.take() {
+            let owned =
+                self.guest_server_mod_command(&mut host, conn, line.trim_start_matches('/'));
+            self.lan = Some(host);
+            if owned {
+                return true;
+            }
+        }
         let allowed = self.options.dedicated.is_some() || self.allow_commands();
         let Some(host) = self.lan.as_ref() else {
             return false;

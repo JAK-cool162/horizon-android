@@ -65,6 +65,10 @@ interface game {
     /// distant terrain when LOD Distance is on), as of this tick. None when
     /// nothing is hit, and on the title screen.
     raycast: func(distance: f32) -> option<hit>;
+    /// The block state at a position of the player's dimension as the player's game has it
+    /// (`minecraft:oak_log[axis=y]`), as of this tick; none where no chunk is loaded there,
+    /// and on the title screen. On a server, what it sent the player. Level 10.
+    get-block: func(x: s32, y: s32, z: s32) -> option<string>;
 }
 
 /// Capability `chat`: messages only the local player sees.
@@ -253,6 +257,18 @@ interface input {
     register-key: func(name: string, label: string, key: string) -> result<_, string>;
     /// The main hand's stack, as of this tick; none when it is empty.
     held: func() -> option<held-item>;
+    /// What a damageable item wears down.
+    record durability {
+        /// Uses left before it breaks: its maximum damage less its damage.
+        left: u32,
+        max: u32,
+        /// Its Unbreaking level: each use costs durability with a chance of 1 in (level + 1)
+        /// (armour aside).
+        unbreaking: u32,
+    }
+    /// The main hand's durability, as of this tick; none when it is empty or doesn't wear
+    /// down. Level 10.
+    held-durability: func() -> option<durability>;
     /// The events since the last call, oldest first.
     poll: func() -> list<event>;
     /// Takes the mouse wheel while playing (true) or gives it back: while
@@ -348,6 +364,22 @@ interface render {
         item(item-shape),
         text(text-shape),
     }
+    /// A block's outline in the world.
+    record outline {
+        /// The block.
+        x: s32,
+        y: s32,
+        z: s32,
+        /// 0xAARRGGBB.
+        color: u32,
+        /// Drawn over the blocks in front of it, as the debug gizmos are; otherwise hidden
+        /// behind them, as the block selection outline is.
+        through: bool,
+    }
+    /// Replaces the mod's block outlines: up to 1024, drawn every frame in the world (edges
+    /// two blocks share drawn once), hidden with the HUD (F1). An empty list removes them.
+    /// Level 10.
+    set-outlines: func(outlines: list<outline>);
     /// Replaces the mod's HUD shapes: up to 1024, drawn every frame in
     /// order over the HUD (after the hotbar, under chat and screens), hidden
     /// with the HUD (F1). An empty list removes them.
@@ -699,6 +731,14 @@ interface %world {
     /// next tick, with the `set-blocks` of the same call order; one in a chunk
     /// not loaded then is skipped. At most 4096 per call. API level 8.
     break-blocks: func(dimension: string, positions: list<tuple<s32, s32, s32>>, drops: bool) -> result<_, string>;
+    /// Mines `positions` as the online player `player` (name or UUID) would, one after the
+    /// other in their dimension, with what they hold: its loot (Fortune, Silk Touch, the
+    /// tool tier's drops), a durability use per block that wears it, vanilla's 0.005
+    /// exhaustion per block, the statistics; game mode, spawn protection and the native
+    /// mods' checks apply. It stops at a block more than 32 blocks from them, and when what
+    /// they hold breaks or changes. Server mods don't hear these blocks as `block-broken`.
+    /// At most 256 positions; done before the next tick. Level 10.
+    mine-blocks: func(player: string, positions: list<tuple<s32, s32, s32>>) -> result<_, string>;
 }
 
 /// Server mods' events that arrived after `server-events` (API level 8). An

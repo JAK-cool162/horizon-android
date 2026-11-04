@@ -14816,7 +14816,10 @@ impl Game<'_> {
         let mut lines = self.fishing_line(alpha, size);
         let g = self.debug_gizmos(alpha as f32, camera.to_array());
         lines.extend(g.lines);
-        let on_top = g.on_top;
+        let mut on_top = g.on_top;
+        if self.title.is_none() && !self.ui.hide_gui {
+            self.mod_outline_lines(camera.to_array(), &mut lines, &mut on_top);
+        }
         let colored_lights = if self.title.is_none() {
             self.native_frame_visuals(camera, &mut lines)
         } else {

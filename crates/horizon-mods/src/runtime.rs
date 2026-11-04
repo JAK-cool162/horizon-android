@@ -105,8 +105,8 @@ pub use render_bindings::horizon::mods::input::{Event as InputEvent, HeldItem, I
 /// What capability `render` asks the game to draw (WIT `interface render`).
 pub use render_bindings::horizon::mods::render::{
     Corner as RenderCorner, FarTerrain as ModFarTerrain, FillShape, FrameRate, ItemShape,
-    Minimap as ModMinimap, Point as RenderPoint, QuadShape, Rect as RenderRect, Shape, SpriteShape,
-    TextShape, Zoom as ModZoom,
+    Minimap as ModMinimap, Outline as ModOutline, Point as RenderPoint, QuadShape,
+    Rect as RenderRect, Shape, SpriteShape, TextShape, Zoom as ModZoom,
 };
 use render_bindings::{RenderHost, horizon::mods::render};
 /// Capability `recipes`'s imports (docs/mods.md): the game's recipes and items.
@@ -138,6 +138,10 @@ const FUEL_FRAME: u64 = 10_000_000;
 const FUEL_EVENT: u64 = 100_000_000;
 /// Blocks a mod may set per `world.set-blocks` call.
 pub const BLOCKS_PER_CALL: usize = 4096;
+/// Blocks one `world.mine-blocks` call mines.
+pub const MINE_PER_CALL: usize = 256;
+/// Block outlines per mod (`render.set-outlines`).
+pub const OUTLINES: usize = 1024;
 /// Chat lines a mod may show per call, HUD lines and their length.
 const CHAT_PER_CALL: usize = 8;
 /// `command.run-quiet` lines one call of a mod may queue (a quiet payload's
@@ -177,6 +181,9 @@ pub struct Snapshot {
     pub gui_size: (f32, f32),
     /// The main hand's stack (capability `input`'s `held`).
     pub held: Option<HeldItem>,
+    /// The main hand's durability: uses left, maximum, Unbreaking level
+    /// (`input.held-durability`).
+    pub held_durability: Option<(u32, u32, u32)>,
     /// The game's frame counter: fps, min, 1% low (`render.frame-stats`).
     pub frame: (u32, u32, u32),
     /// The movement and click mappings `input.mapping` answers for:
@@ -273,6 +280,12 @@ pub enum Output {
         dimension: String,
         positions: Vec<(i32, i32, i32)>,
         drops: bool,
+    },
+    /// `world.mine-blocks`: `positions` mined as the player with this UUID.
+    MineBlocks {
+        name: String,
+        player: String,
+        positions: Vec<(i32, i32, i32)>,
     },
     /// `ui.open-screen`: the mod's entry in `entries()`; what it shows is
     /// [`Mods::screen`].
@@ -478,6 +491,8 @@ struct State {
     shapes: Vec<Shape>,
     /// Capability `render`'s corner panel.
     corner: Option<CornerPanel>,
+    /// Capability `render`'s block outlines, drawn until replaced.
+    outlines: Vec<ModOutline>,
     /// Capability `render`'s zoom, when the mod zooms.
     zoom: Option<ModZoom>,
     /// Capability `render`'s minimap, when the mod shows one.
@@ -715,6 +730,7 @@ impl Mods {
             ui: UiState::default(),
             shapes: Vec::new(),
             corner: None,
+            outlines: Vec::new(),
             zoom: None,
             minimap: None,
             far_terrain: None,
@@ -1451,6 +1467,24 @@ impl Mods {
             }
         }
     }
+    /// The running mods' block outlines (capability `render`), mods in load
+    /// order.
+    pub fn outlines(&self) -> impl Iterator<Item = &ModOutline> {
+        self.entries
+            .iter()
+            .filter_map(|e| e.run.as_ref())
+            .flat_map(|r| &r.store.data().outlines)
+    }
+    /// Whether a running client mod may read blocks (capability `game`'s
+    /// `get-block`): only then is the window's world worth lending.
+    pub fn wants_client_world(&self) -> bool {
+        self.entries.iter().any(|e| {
+            e.status == Status::Running
+                && e.manifest.as_ref().is_some_and(|m| {
+                    m.side != Side::Server && m.capabilities.contains(&crate::Capability::GameRead)
+                })
+        })
+    }
     /// The running mods' HUD shapes (capability `render`), each mod's in
     /// its own order, mods in load order.
     pub fn hud_shapes(&self) -> impl Iterator<Item = &Shape> {
@@ -1706,6 +1740,11 @@ impl game::Host for State {
         // NaN compares false: no hit.
         (*at <= distance.min(RAYCAST_MAX) && !distance.is_nan()).then(|| hit.clone())
     }
+    fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<String> {
+        let dimension = &self.snapshot.player.as_ref()?.dimension;
+        let view = self.world.lock().ok()?;
+        view.as_ref()?.block(dimension, x, y, z)
+    }
 }
 impl browser::Host for State {
     fn set_items(&mut self, items: Vec<BrowserStack>) {
@@ -1914,6 +1953,34 @@ impl mod_world::Host for State {
         }
         Ok(())
     }
+    fn mine_blocks(
+        &mut self,
+        player: String,
+        positions: Vec<(i32, i32, i32)>,
+    ) -> Result<(), String> {
+        if positions.len() > MINE_PER_CALL {
+            return Err(format!(
+                "{} blocks: at most {MINE_PER_CALL} per call",
+                positions.len()
+            ));
+        }
+        let Some(who) = self
+            .snapshot
+            .players
+            .iter()
+            .find(|p| p.id == player || p.name == player)
+        else {
+            return Err(format!("{player} isn't online"));
+        };
+        if !positions.is_empty() {
+            self.out.push(Output::MineBlocks {
+                name: self.name.clone(),
+                player: who.id.clone(),
+                positions,
+            });
+        }
+        Ok(())
+    }
 }
 impl players::Host for State {
     fn online(&mut self) -> Vec<ServerPlayer> {
@@ -2025,6 +2092,14 @@ impl input::Host for State {
     fn held(&mut self) -> Option<HeldItem> {
         self.snapshot.held.clone()
     }
+    fn held_durability(&mut self) -> Option<input::Durability> {
+        let (left, max, unbreaking) = self.snapshot.held_durability?;
+        Some(input::Durability {
+            left,
+            max,
+            unbreaking,
+        })
+    }
     fn poll(&mut self) -> Vec<InputEvent> {
         self.input.events.drain(..).collect()
     }
@@ -2098,6 +2173,9 @@ fn clip_shapes(shapes: Vec<Shape>) -> Vec<Shape> {
 impl render::Host for State {
     fn set_hud(&mut self, shapes: Vec<Shape>) {
         self.shapes = clip_shapes(shapes);
+    }
+    fn set_outlines(&mut self, outlines: Vec<ModOutline>) {
+        self.outlines = outlines.into_iter().take(OUTLINES).collect();
     }
     fn set_corner(&mut self, corner: RenderCorner, width: f32, height: f32, shapes: Vec<Shape>) {
         let size = |v: f32| {

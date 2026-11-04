@@ -86,6 +86,8 @@ pub struct HudAtlas {
     /// A resource pack's own `core/text` shader for the GUI's text, translated;
     /// none draws the text natively.
     pub text_shader: Option<std::sync::Arc<horizon_shaders::CoreProgram>>,
+    /// A content mod's GUI theme, applied to the GUI textures packed here.
+    pub theme: Option<crate::gui_theme::Theme>,
     white: Rect,
 }
 /// Atlas rows reserved for glyphs rasterized at run time.
@@ -483,6 +485,7 @@ impl HudAtlas {
             glint_armor: (vec![0; 4], 1, 1),
             white,
             text_shader: None,
+            theme: None,
         }
     }
     /// Shelf placements of `images` (tallest first) in the narrowest atlas
@@ -707,6 +710,8 @@ impl HudAtlas {
             bool,
             Option<std::sync::Arc<crate::gui_backgrounds::Frames>>,
         );
+        let loaded_theme = full.then(|| crate::gui_theme::Theme::load(root)).flatten();
+        let theme = loaded_theme.as_ref();
         let decode_one = |path: &PathBuf| -> Option<Decoded> {
             let name = match path.strip_prefix(&textures) {
                 Ok(rel) => rel.with_extension("").to_string_lossy().replace('\\', "/"),
@@ -723,9 +728,12 @@ impl HudAtlas {
             {
                 return None;
             }
-            let image = decode(path)
+            let mut image = decode(path)
                 .map_err(|e| log::warn!("skipped GUI texture {}: {e}", path.display()))
                 .ok()?;
+            if let Some(theme) = theme.filter(|_| crate::gui_theme::Theme::applies_to(&name)) {
+                theme.apply(&mut image.2);
+            }
             let mcmeta = fs::read_to_string(path.with_extension("png.mcmeta")).ok();
             // A pack's animated background behind screens: its first frame here, at its own
             // size, and its frames for the HUD to turn.
@@ -954,6 +962,7 @@ impl HudAtlas {
             glint,
             glint_armor,
             text_shader: None,
+            theme: loaded_theme,
             font,
             white,
         })
@@ -1093,8 +1102,8 @@ pub struct EndPortalFill {
     pub sprites: [[f32; 4]; 2],
     pub game_time: f32,
 }
-pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
-    u32::from(a) << 24 | u32::from(b) << 16 | u32::from(g) << 8 | u32::from(r)
+pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
+    (a as u32) << 24 | (b as u32) << 16 | (g as u32) << 8 | r as u32
 }
 impl HudBatch {
     /// Window.calculateScale: the largest scale keeping >= 320x240 GUI pixels,
@@ -1466,6 +1475,11 @@ impl HudBatch {
         color: u32,
         shadow: bool,
     ) -> f32 {
+        // A GUI theme's labels: vanilla draws a container's in dark grey, unshadowed.
+        let color = match atlas.theme.as_ref().and_then(|t| t.label_color) {
+            Some(label) if !shadow && color == crate::gui_theme::VANILLA_LABEL => label,
+            _ => color,
+        };
         self.styled_text(atlas, text, x, y, color, shadow, false)
     }
     /// `text_styled` for text drawn in the world (`TextRenderable.render`

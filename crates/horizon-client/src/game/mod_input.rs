@@ -72,6 +72,19 @@ impl Game<'_> {
             slot: self.selected as u32,
         })
     }
+    /// The held stack's uses left, maximum and Unbreaking level, when it wears down
+    /// (`input.held-durability`).
+    pub(super) fn mod_held_durability(&self) -> Option<(u32, u32, u32)> {
+        let stack = self.inventory.get(self.selected)?.as_ref()?;
+        let max = self.res.items().get(&stack.item)?.max_damage;
+        (max > 0).then(|| {
+            (
+                max.saturating_sub(stack.damage),
+                max,
+                stack.enchantment_level("minecraft:unbreaking"),
+            )
+        })
+    }
     /// The use button while playing: true when a mod claimed the held item,
     /// so the game does nothing else with it (no placing, eating, swing).
     pub(super) fn sandbox_mod_use(&mut self, button: MouseButton, pressed: bool) -> bool {

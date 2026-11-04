@@ -162,6 +162,7 @@ A block along the player's view.
 | `get-player` | `func() -> option<player>` | None on the title screen. |
 | `get-clock` | `func() -> option<clock>` | None on the title screen. |
 | `raycast` | `func(distance: f32) -> option<hit>` | The first block along the player's view (fluids pass), up to `distance` blocks (at most 1024; past the loaded chunks, across the distant terrain when LOD Distance is on), as of this tick. None when nothing is hit, and on the title screen. |
+| `get-block` | `func(x: s32, y: s32, z: s32) -> option<string>` | The block state at a position of the player's dimension as the player's game has it (`minecraft:oak_log[axis=y]`), as of this tick; none where no chunk is loaded there, and on the title screen. On a server, what it sent the player. Level 10. |
 
 ## `chat`
 
@@ -337,6 +338,16 @@ The main hand's stack.
 | `key-up` | `string` |  |
 | `wheel` | `f32` | Mouse wheel steps while the mod holds the wheel (`claim-wheel`): positive away from the player, as the hotbar reads them. |
 
+### record `durability`
+
+What a damageable item wears down.
+
+| Field | Type | |
+| --- | --- | --- |
+| `left` | `u32` | Uses left before it breaks: its maximum damage less its damage. |
+| `max` | `u32` |  |
+| `unbreaking` | `u32` | Its Unbreaking level: each use costs durability with a chance of 1 in (level + 1) (armour aside). |
+
 ### record `mapping-state`
 
 A mapping as the player has bound it.
@@ -351,6 +362,7 @@ A mapping as the player has bound it.
 | `claim-items` | `func(ids: list<string>)` | The items whose use the mod handles instead of the game, by id (at most 64). Replaces the previous list. |
 | `register-key` | `func(name: string, label: string, key: string) -> result<_, string>` | A key of the mod's: `name` comes back in `key-down` and `key-up`, `label` says what it does, `key` is the key as options.txt writes it (`key.keyboard.r`), the default: the player can bind another one on the mod's page in Options > Mods, and that one wins. At most 16; an unknown key is an error. |
 | `held` | `func() -> option<held-item>` | The main hand's stack, as of this tick; none when it is empty. |
+| `held-durability` | `func() -> option<durability>` | The main hand's durability, as of this tick; none when it is empty or doesn't wear down. Level 10. |
 | `poll` | `func() -> list<event>` | The events since the last call, oldest first. |
 | `claim-wheel` | `func(on: bool)` | Takes the mouse wheel while playing (true) or gives it back: while taken, its steps are the mod's `wheel` events and the hotbar doesn't move. The game gives it back when the mod stops. |
 | `mapping` | `func(name: string) -> option<mapping-state>` | A movement or click mapping as the player has bound it: `key.forward`, `key.left`, `key.back`, `key.right`, `key.jump`, `key.sneak`, `key.sprint`, `key.attack` or `key.use`. None for another name. |
@@ -445,6 +457,18 @@ Any four-cornered shape (a wheel's segment, an arrow): the corners in order roun
 | `item` | `item-shape` |  |
 | `text` | `text-shape` |  |
 
+### record `outline`
+
+A block's outline in the world.
+
+| Field | Type | |
+| --- | --- | --- |
+| `x` | `s32` | The block. |
+| `y` | `s32` |  |
+| `z` | `s32` |  |
+| `color` | `u32` | 0xAARRGGBB. |
+| `through` | `bool` | Drawn over the blocks in front of it, as the debug gizmos are; otherwise hidden behind them, as the block selection outline is. |
+
 ### record `frame-rate`
 
 | Field | Type | |
@@ -480,6 +504,7 @@ Any four-cornered shape (a wheel's segment, an arrow): the corners in order roun
 
 | Function | Signature | What it does |
 | --- | --- | --- |
+| `set-outlines` | `func(outlines: list<outline>)` | Replaces the mod's block outlines: up to 1024, drawn every frame in the world (edges two blocks share drawn once), hidden with the HUD (F1). An empty list removes them. Level 10. |
 | `set-hud` | `func(shapes: list<shape>)` | Replaces the mod's HUD shapes: up to 1024, drawn every frame in order over the HUD (after the hotbar, under chat and screens), hidden with the HUD (F1). An empty list removes them. |
 | `gui-size` | `func() -> tuple<f32, f32>` | The screen's size in GUI pixels (width, height), as of this tick. |
 | `shake` | `func(strength: f32, seconds: f32)` | Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that fades out over `seconds` (at most 10). Jolts add up to 1. The view turns, the player doesn't, and the player's Distortion Effects option scales it (0 turns it off). |
@@ -723,6 +748,7 @@ Capability `world`, server mods only (manifest `api = "0.3"`, experimental): the
 | `get-biome` | `func(dimension: string, x: s32, y: s32, z: s32) -> option<string>` | The biome at a position (`minecraft:plains`, ...), as the server stores it (one per 4 x 4 x 4 cell): none where no chunk is loaded. |
 | `set-blocks` | `func(dimension: string, blocks: list<block-change>) -> result<_, string>` | Sets blocks as `/setblock` does: the old block entity removed, neighbours and shapes updated, light, and every player told. Every state is checked now (an error queues nothing); the changes are made in order after this call returns, before that dimension's next tick; one in a chunk not loaded then is skipped. At most 4096 per call. |
 | `break-blocks` | `func(dimension: string, positions: list<tuple<s32, s32, s32>>, drops: bool) -> result<_, string>` | Breaks blocks as `Level.destroyBlock` does: the break particles and sound, the block's loot when `drops` (its own loot table, no tool), a waterlogged block's water left behind, and neighbours updated. Air is skipped. Made in order after this call returns, before that dimension's next tick, with the `set-blocks` of the same call order; one in a chunk not loaded then is skipped. At most 4096 per call. API level 8. |
+| `mine-blocks` | `func(player: string, positions: list<tuple<s32, s32, s32>>) -> result<_, string>` | Mines `positions` as the online player `player` (name or UUID) would, one after the other in their dimension, with what they hold: its loot (Fortune, Silk Touch, the tool tier's drops), a durability use per block that wears it, vanilla's 0.005 exhaustion per block, the statistics; game mode, spawn protection and the native mods' checks apply. It stops at a block more than 32 blocks from them, and when what they hold breaks or changes. Server mods don't hear these blocks as `block-broken`. At most 256 positions; done before the next tick. Level 10. |
 
 ## `use-events`
 
