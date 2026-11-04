@@ -1,42 +1,226 @@
-//! The launcher's look: Material 3 tonal surfaces on a dark scheme built from Horizon's violet,
-//! a navigation rail (a bottom bar in portrait), pill buttons and rounded cards.
+//! The launcher's look ("Nightly"): glass cards on a deep indigo night with violet, blue and pink
+//! glows, a gradient hero with a synthwave sun, a navigation rail (a bottom bar in portrait),
+//! pill buttons and rounded cards.
 use crate::catalog::Page;
 use horizon_client::ui_theme::{Face, Ui};
 
 /// The launcher's colour roles. The names the pages used before stay, so dialogs keep working.
 pub mod color {
     use horizon_client::ui_theme::color::hex;
-    /// The page behind everything (M3 `surface`).
-    pub const BG: u32 = hex(0x131318, 255);
-    /// The rail and the bottom bar (`surfaceContainerLow`).
-    pub const LOW: u32 = hex(0x1b1b21, 255);
-    /// Cards (`surfaceContainer`).
-    pub const CARD: u32 = hex(0x1f1f26, 255);
-    /// Tonal buttons and fields (`surfaceContainerHigh`).
-    pub const RAISED: u32 = hex(0x2a2931, 255);
-    /// Pressed plates, a switch's track when off (`surfaceContainerHighest`).
-    pub const HOVER: u32 = hex(0x35343c, 255);
-    /// Dividers (`outlineVariant`).
-    pub const BORDER: u32 = hex(0x47464f, 255);
-    /// Outlines and an off switch's thumb (`outline`).
-    pub const OUTLINE: u32 = hex(0x928f9a, 255);
-    pub const TEXT: u32 = hex(0xe5e1ea, 255);
-    /// Secondary text (`onSurfaceVariant`).
-    pub const MUTED: u32 = hex(0xc9c5d1, 255);
-    /// The one filled action per screen (`primary`).
-    pub const ACCENT: u32 = hex(0xc8bfff, 255);
-    pub const ON_ACCENT: u32 = hex(0x2e2276, 255);
-    /// The avatar and the logo tile (`primaryContainer`).
-    pub const ACCENT_CONTAINER: u32 = hex(0x463b8f, 255);
-    pub const ON_ACCENT_CONTAINER: u32 = hex(0xe5deff, 255);
-    /// The selected rail item's indicator (`secondaryContainer`).
-    pub const SELECTED: u32 = hex(0x48455c, 255);
+    /// The page behind everything: the night sky's base.
+    pub const BG: u32 = hex(0x0b0c1d, 255);
+    /// The sky at the bottom of the screen.
+    pub const BG_LOW: u32 = hex(0x150e2e, 255);
+    /// The rail and the bottom bar: glass over the sky.
+    pub const LOW: u32 = hex(0x0e1024, 214);
+    /// Cards: glass, nearly opaque so text stays crisp.
+    pub const CARD: u32 = hex(0x151931, 236);
+    /// A card's 1px rim of light.
+    pub const RIM: u32 = hex(0xffffff, 22);
+    /// Tonal buttons and fields.
+    pub const RAISED: u32 = hex(0x232849, 255);
+    /// Pressed plates, a switch's track when off.
+    pub const HOVER: u32 = hex(0x2e3460, 255);
+    /// Dividers.
+    pub const BORDER: u32 = hex(0x2c3156, 255);
+    /// Outlines and an off switch's thumb.
+    pub const OUTLINE: u32 = hex(0x7a7fa8, 255);
+    pub const TEXT: u32 = hex(0xeef0ff, 255);
+    /// Secondary text.
+    pub const MUTED: u32 = hex(0xa6abd1, 255);
+    /// The one filled action per screen.
+    pub const ACCENT: u32 = hex(0x9d8cff, 255);
+    pub const ON_ACCENT: u32 = hex(0x170c4a, 255);
+    /// The avatar and the logo tile.
+    pub const ACCENT_CONTAINER: u32 = hex(0x3b2d91, 255);
+    pub const ON_ACCENT_CONTAINER: u32 = hex(0xf1edff, 255);
+    /// The selected rail item's indicator.
+    pub const SELECTED: u32 = hex(0x2f2a6e, 255);
     pub const GOOD: u32 = hex(0x1f5134, 255);
     pub const ON_GOOD: u32 = hex(0xa6f2bd, 255);
     pub const WARN: u32 = hex(0x5b4300, 255);
     pub const ON_WARN: u32 = hex(0xffdf9e, 255);
     pub const BAD: u32 = hex(0x8c1d18, 255);
     pub const ON_BAD: u32 = hex(0xffdad6, 255);
+    /// The filled action (Launch, Install...): a violet to orchid pill with white ink.
+    pub const ACTION_LEFT: u32 = hex(0x7357ff, 255);
+    pub const ACTION_RIGHT: u32 = hex(0xc046d6, 255);
+    pub const ON_ACTION: u32 = hex(0xffffff, 255);
+    /// The hero's dusk, left to right.
+    pub const DUSK_LEFT: u32 = hex(0x3a24b8, 255);
+    pub const DUSK_RIGHT: u32 = hex(0xb0379f, 255);
+    /// The sun, top to bottom.
+    pub const SUN_TOP: u32 = hex(0xffd56b, 255);
+    pub const SUN_BOTTOM: u32 = hex(0xff4f8b, 255);
+    /// The glows in the sky (their centres; they fade out to nothing).
+    pub const GLOW_VIOLET: u32 = hex(0x6b4dff, 92);
+    pub const GLOW_BLUE: u32 = hex(0x2f6bff, 64);
+    pub const GLOW_PINK: u32 = hex(0xff3fa0, 44);
+}
+
+/// `c` with its alpha set to `a`.
+const fn alpha(c: u32, a: u8) -> u32 {
+    (c & 0x00ff_ffff) | (a as u32) << 24
+}
+
+/// The colour `t` of the way from `a` to `b` (every channel, alpha too).
+fn mix(a: u32, b: u32, t: f32) -> u32 {
+    let t = t.clamp(0.0, 1.0);
+    (0..4).fold(0, |out, i| {
+        let (ca, cb) = ((a >> (i * 8)) & 0xff, (b >> (i * 8)) & 0xff);
+        let c = (ca as f32 + (cb as f32 - ca as f32) * t).round() as u32;
+        out | c << (i * 8)
+    })
+}
+
+/// A quad in dp with its own colour at each corner (`corners` and `colors` in the same order,
+/// round the shape), blended across it by the GPU.
+fn shade(ui: &mut Ui, corners: [[f32; 2]; 4], colors: [u32; 4]) {
+    let s = ui.batch.scale;
+    let (ox, oy, d) = (ui.origin.0, ui.origin.1, ui.density);
+    let gui = corners.map(|[x, y]| [((x + ox) * d).round() / s, ((y + oy) * d).round() / s]);
+    let start = ui.batch.vertices.len();
+    ui.batch.fill_quad(ui.atlas, gui, u32::MAX);
+    // fill_quad's two triangles: corners 0 1 2 and 0 2 3.
+    for (v, i) in ui.batch.vertices[start..]
+        .iter_mut()
+        .zip([0, 1, 2, 0, 2, 3])
+    {
+        v.color = colors[i];
+    }
+}
+
+/// A rectangle whose corners have their own colours: top left, top right, bottom right, bottom
+/// left.
+pub fn gradient(ui: &mut Ui, [x, y, w, h]: [f32; 4], colors: [u32; 4]) {
+    shade(ui, [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], colors);
+}
+
+/// A rounded rectangle shading from `left` to `right` (opaque colours: its caps overlap).
+pub fn rounded_across(ui: &mut Ui, [x, y, w, h]: [f32; 4], r: f32, left: u32, right: u32) {
+    let r = r.min(w / 2.0).min(h / 2.0);
+    ui.rounded(x, y, 2.0 * r, h, r, left);
+    ui.rounded(x + w - 2.0 * r, y, 2.0 * r, h, r, right);
+    gradient(ui, [x + r, y, w - 2.0 * r, h], [left, right, right, left]);
+}
+
+/// A soft round glow: `color` at the centre fading to nothing at radius `r`.
+pub fn glow(ui: &mut Ui, cx: f32, cy: f32, r: f32, color: u32) {
+    const SEGMENTS: usize = 32;
+    let rim = alpha(color, 0);
+    // Two rings: the inner half keeps most of the light, so the falloff looks round, not conical.
+    let mid = alpha(color, ((color >> 24) as f32 * 0.45) as u8);
+    let point = |k: usize, radius: f32| {
+        let a = k as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        [cx + radius * a.cos(), cy + radius * a.sin()]
+    };
+    for k in 0..SEGMENTS {
+        let (a0, a1) = (point(k, r * 0.5), point(k + 1, r * 0.5));
+        shade(ui, [[cx, cy], a0, a1, a1], [color, mid, mid, mid]);
+        let (b0, b1) = (point(k, r), point(k + 1, r));
+        shade(ui, [a0, b0, b1, a1], [mid, rim, rim, mid]);
+    }
+}
+
+/// The filled action's pill: a soft glow under a violet to orchid gradient.
+pub fn action_pill(ui: &mut Ui, [x, y, w, h]: [f32; 4], r: f32) {
+    glow(
+        ui,
+        x + w / 2.0,
+        y + h * 0.75,
+        (w * 0.6).max(h),
+        alpha(color::ACTION_RIGHT, 60),
+    );
+    rounded_across(ui, [x, y, w, h], r, color::ACTION_LEFT, color::ACTION_RIGHT);
+}
+
+/// The night sky behind every page: a dark gradient with violet, blue and pink glows.
+pub fn backdrop(ui: &mut Ui, w: f32, h: f32) {
+    gradient(
+        ui,
+        [0.0, 0.0, w, h],
+        [color::BG, color::BG, color::BG_LOW, color::BG_LOW],
+    );
+    let big = w.max(h);
+    glow(ui, w * 0.78, -h * 0.05, big * 0.62, color::GLOW_VIOLET);
+    glow(ui, w * 0.05, h * 1.02, big * 0.5, color::GLOW_BLUE);
+    glow(ui, w * 0.98, h * 0.92, big * 0.34, color::GLOW_PINK);
+}
+
+/// A synthwave sun: the top half of a disc of radius `r` standing on `base`, shading from
+/// yellow to pink, cut by bands that widen towards the horizon.
+pub fn sun(ui: &mut Ui, cx: f32, base: f32, r: f32) {
+    const SLICES: usize = 24;
+    let step = r / SLICES as f32;
+    for i in 0..SLICES {
+        let (t0, t1) = (i as f32 / SLICES as f32, (i + 1) as f32 / SLICES as f32);
+        // The lower half of the sun is cut: a gap that grows towards the horizon.
+        let gap = if t0 >= 0.45 {
+            step * (t0 - 0.35) * 1.6
+        } else {
+            0.0
+        };
+        let (y0, y1) = (
+            base - r + i as f32 * step,
+            base - r + (i + 1) as f32 * step - gap,
+        );
+        if y1 <= y0 {
+            continue;
+        }
+        let half = |y: f32| (r * r - (base - y).powi(2)).max(0.0).sqrt();
+        let (top, bottom) = (
+            mix(color::SUN_TOP, color::SUN_BOTTOM, t0),
+            mix(color::SUN_TOP, color::SUN_BOTTOM, t1),
+        );
+        let (h0, h1) = (half(y0), half(y1));
+        shade(
+            ui,
+            [[cx - h0, y0], [cx + h0, y0], [cx + h1, y1], [cx - h1, y1]],
+            [top, top, bottom, bottom],
+        );
+    }
+    glow(
+        ui,
+        cx,
+        base - r * 0.3,
+        r * 1.3,
+        alpha(color::SUN_BOTTOM, 34),
+    );
+}
+
+/// The Play page's hero band: dusk from violet to magenta, square at the bottom where the card's
+/// body joins it, with the sun on the right when there is room. Returns the width left for text.
+pub fn hero_band(ui: &mut Ui, [x, y, w, h]: [f32; 4]) -> f32 {
+    rounded_across(ui, [x, y, w, h], 16.0, color::DUSK_LEFT, color::DUSK_RIGHT);
+    gradient(
+        ui,
+        [x, y + h - 16.0, w, 16.0],
+        [
+            color::DUSK_LEFT,
+            color::DUSK_RIGHT,
+            color::DUSK_RIGHT,
+            color::DUSK_LEFT,
+        ],
+    );
+    // The horizon: a thin bright line where the sun sets.
+    let r = (h * 0.62).min(w * 0.16);
+    if w >= 480.0 && r >= 36.0 {
+        let cx = x + w - r - 28.0;
+        sun(ui, cx, y + h - 6.0, r);
+        gradient(
+            ui,
+            [x + w * 0.45, y + h - 6.0, w * 0.55, 2.0],
+            [
+                alpha(color::SUN_BOTTOM, 0),
+                alpha(color::SUN_TOP, 200),
+                alpha(color::SUN_TOP, 200),
+                alpha(color::SUN_BOTTOM, 0),
+            ],
+        );
+        w - 2.0 * r - 76.0
+    } else {
+        w - 48.0
+    }
 }
 
 /// The navigation rail's width (landscape) and the bottom bar's height (portrait).
@@ -46,6 +230,7 @@ pub const BAR: f32 = 76.0;
 /// A rounded card.
 pub fn card(ui: &mut Ui, [x, y, w, h]: [f32; 4], fill: u32) {
     ui.rounded(x, y, w, h, 16.0, fill);
+    ui.border(x, y, w, h, 16.0, color::RIM);
 }
 
 /// A small filled label ("Built in", "Needs build").
@@ -84,7 +269,20 @@ pub fn avatar(ui: &mut Ui, x: f32, y: f32, d: f32, name: &str) {
 
 /// Horizon's tile: a rounded square with the "H".
 pub fn logo(ui: &mut Ui, x: f32, y: f32, s: f32) {
-    ui.rounded(x, y, s, s, s * 0.3, color::ACCENT_CONTAINER);
+    glow(
+        ui,
+        x + s / 2.0,
+        y + s / 2.0,
+        s * 1.1,
+        alpha(color::DUSK_LEFT, 120),
+    );
+    rounded_across(
+        ui,
+        [x, y, s, s],
+        s * 0.3,
+        color::DUSK_LEFT,
+        color::DUSK_RIGHT,
+    );
     let size = s * 0.5;
     let w = ui.measure(Face::SemiBold, size, "H");
     ui.text(
@@ -184,7 +382,14 @@ pub fn nav_label(page: Page) -> &'static str {
 /// One navigation item: the indicator pill, the icon and the label, centred on `cx`.
 fn nav_item(ui: &mut Ui, page: Page, cx: f32, y: f32, selected: bool) {
     if selected {
-        ui.rounded(cx - 28.0, y, 56.0, 32.0, 16.0, color::SELECTED);
+        glow(ui, cx, y + 16.0, 44.0, alpha(color::DUSK_LEFT, 90));
+        rounded_across(
+            ui,
+            [cx - 28.0, y, 56.0, 32.0],
+            16.0,
+            color::ACCENT_CONTAINER,
+            color::SELECTED,
+        );
     }
     let ink = if selected { color::TEXT } else { color::MUTED };
     icon(ui, page, cx - 12.0, y + 4.0, 24.0, ink);
@@ -197,6 +402,7 @@ fn nav_item(ui: &mut Ui, page: Page, cx: f32, y: f32, selected: bool) {
 /// Returns each page's touch rectangle.
 pub fn rail(ui: &mut Ui, current: Page, h: f32) -> Vec<([f32; 4], Page)> {
     ui.rounded(0.0, 0.0, RAIL, h, 0.0, color::LOW);
+    ui.rounded(RAIL - 1.0, 0.0, 1.0, h, 0.0, color::RIM);
     logo(ui, (RAIL - 48.0) / 2.0, 20.0, 48.0);
     let step = ((h - 104.0) / Page::ALL.len() as f32).clamp(56.0, 76.0);
     Page::ALL
@@ -214,6 +420,7 @@ pub fn rail(ui: &mut Ui, current: Page, h: f32) -> Vec<([f32; 4], Page)> {
 pub fn bar(ui: &mut Ui, current: Page, w: f32, h: f32) -> Vec<([f32; 4], Page)> {
     let top = h - BAR;
     ui.rounded(0.0, top, w, BAR, 0.0, color::LOW);
+    ui.rounded(0.0, top, w, 1.0, 0.0, color::RIM);
     let step = w / Page::ALL.len() as f32;
     Page::ALL
         .iter()
@@ -228,7 +435,8 @@ pub fn bar(ui: &mut Ui, current: Page, w: f32, h: f32) -> Vec<([f32; 4], Page)> 
 
 /// The account chip of the top bar: avatar, name and sign-in state.
 pub fn account_chip(ui: &mut Ui, [x, y, w, h]: [f32; 4], status: &str, signed_in: bool) {
-    ui.rounded(x, y, w, h, h / 2.0, color::RAISED);
+    ui.rounded(x, y, w, h, h / 2.0, color::CARD);
+    ui.border(x, y, w, h, h / 2.0, color::RIM);
     let (state, name) = split_status(status);
     avatar(ui, x + 6.0, y + (h - 36.0) / 2.0, 36.0, name);
     let name = ui.fit_text(Face::Medium, 15.0, name, w - 64.0);

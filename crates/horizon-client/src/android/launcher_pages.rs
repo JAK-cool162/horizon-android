@@ -373,14 +373,11 @@ pub(super) fn button(
             | Action::ExportPerformance
     );
     let radius = if field { 12.0 } else { (h / 2.0).min(22.0) };
-    ui.rounded(
-        x,
-        y,
-        w,
-        h,
-        radius,
-        if accent { color::ACCENT } else { color::RAISED },
-    );
+    if accent {
+        style::action_pill(ui, rect, radius);
+    } else {
+        ui.rounded(x, y, w, h, radius, color::RAISED);
+    }
     let padding = if field {
         12.0
     } else {
@@ -399,7 +396,7 @@ pub(super) fn button(
         left,
         y + ((h - font * 1.45) / 2.0).max(0.0),
         if accent {
-            color::ON_ACCENT
+            color::ON_ACTION
         } else {
             color::TEXT
         },
@@ -523,9 +520,7 @@ impl Launcher {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
         let (sw, sh) = (ui.w, ui.h);
-        let scale = ui.density / ui.batch.scale;
-        ui.batch
-            .fill(&gui.atlas, 0.0, 0.0, sw * scale, sh * scale, color::BG);
+        style::backdrop(&mut ui, sw, sh);
         // Navigation: a rail on wide screens, a bottom bar in portrait.
         let wide = sw >= 700.0;
         let nav = if wide {
@@ -612,8 +607,7 @@ impl Launcher {
             let [hx, hy, hw, hh] = hero;
             style::card(&mut ui, hero, color::CARD);
             let band = (hh * 0.4).clamp(110.0, 150.0);
-            ui.rounded(hx, hy, hw, band, 16.0, color::ACCENT_CONTAINER);
-            ui.rounded(hx, hy + band - 16.0, hw, 16.0, 0.0, color::ACCENT_CONTAINER);
+            let text_w = style::hero_band(&mut ui, [hx, hy, hw, band]);
             let headline = if installing {
                 "Getting your game ready"
             } else if installed {
@@ -623,7 +617,7 @@ impl Launcher {
             } else {
                 "Your Java worlds, on Android"
             };
-            let headline = ui.fit_text(Face::SemiBold, 28.0, headline, hw - 48.0);
+            let headline = ui.fit_text(Face::SemiBold, 28.0, headline, text_w);
             ui.text(
                 Face::SemiBold,
                 28.0,
