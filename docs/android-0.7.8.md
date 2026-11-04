@@ -79,6 +79,16 @@ command, as Fabric's callbacks do. Examples: the `extras_api` native mod (versio
 cancellable callbacks, player helpers, and the window's video options for client mods) and the
 `welcome-kit`, `spawn-guard` and `video-settings` mods that use it. See [the mod bridge](android-native-mods.md#the-mod-bridge-apis-that-native-mods-add).
 
+## Mod API level 10
+
+Client mods read the blocks around the player (`game.get-block`), the main hand's durability
+(`input.held-durability`) and draw block outlines in the world (`render.set-outlines`). They may
+run the server's own commands, so a client mod reaches its server half. Server mods mine blocks
+as a player would (`world.mine-blocks`): the player's tool loot, wear and exhaustion, protection
+and the native mods' checks. A content mod can carry a GUI theme
+(`assets/<id>/horizon/gui_theme.json`, [mods.md](mods.md#gui-themes)): a gradient the GUI's grey
+pixels take, and a colour for container labels.
+
 ## GIF backgrounds behind screens
 
 A resource pack can put an animated GIF behind screens, a Horizon feature off unless a pack
