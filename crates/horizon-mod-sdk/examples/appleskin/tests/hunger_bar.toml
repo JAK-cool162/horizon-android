@@ -28,3 +28,15 @@ expect.hud-sprites = [
     "hud/heart/container", "hud/heart/full",
     "hud/food_empty", "hud/food_full",
 ]
+
+# Bread's name over the hotbar with a full bar (nothing to flash): AppleSkin's tooltip beside it,
+# three drumsticks right to left (the half one leftmost), each a container, the icon at a
+# quarter and the icon.
+[[step]]
+player = { health = 20.0, food = 20, saturation = 0.0, exhaustion = 0.0, held-food = [5, 6.0], held-name = "Bread" }
+ticks = 1
+expect.hud-sprites = [
+    "hud/food_empty", "hud/food_full", "hud/food_full",
+    "hud/food_empty", "hud/food_full", "hud/food_full",
+    "hud/food_empty", "hud/food_half", "hud/food_half",
+]

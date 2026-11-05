@@ -433,6 +433,18 @@ interface render {
     set-hud-under: func(shapes: list<shape>);
     /// The screen's size in GUI pixels (width, height), as of this tick.
     gui-size: func() -> tuple<f32, f32>;
+    /// The held item's name over the hotbar, as the HUD last drew it.
+    record item-name {
+        /// The name as shown (a renamed item's own name).
+        text: string,
+        /// Where its text is, in GUI pixels: 9 high.
+        rect: rect,
+        /// How opaque it is as it fades out, 0 to 1.
+        alpha: f32,
+    }
+    /// The held item's name while the HUD shows it (for two seconds after switching to
+    /// another item, then fading); none otherwise. Level 11.
+    held-name: func() -> option<item-name>;
     /// Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that
     /// fades out over `seconds` (at most 10). Jolts add up to 1. The view
     /// turns, the player doesn't, and the player's Distortion Effects option

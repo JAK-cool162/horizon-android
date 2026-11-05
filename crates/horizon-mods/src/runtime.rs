@@ -214,6 +214,9 @@ pub struct Snapshot {
     pub food: Option<FoodState>,
     /// What eating the main hand's stack gives (`input.held-food`).
     pub held_food: Option<HeldFood>,
+    /// The held item's name over the hotbar while it shows: text, x, y, width, alpha 0 to 1
+    /// (`render.held-name`).
+    pub held_name: Option<(String, [f32; 3], f32)>,
     /// The game's frame counter: fps, min, 1% low (`render.frame-stats`).
     pub frame: (u32, u32, u32),
     /// The movement and click mappings `input.mapping` answers for:
@@ -2259,6 +2262,14 @@ impl render::Host for State {
     }
     fn set_hud_under(&mut self, shapes: Vec<Shape>) {
         self.shapes_under = clip_shapes(shapes);
+    }
+    fn held_name(&mut self) -> Option<render::ItemName> {
+        let (text, [x, y, w], alpha) = self.snapshot.held_name.clone()?;
+        Some(render::ItemName {
+            text,
+            rect: render::Rect { x, y, w, h: 9.0 },
+            alpha,
+        })
     }
     fn set_outlines(&mut self, outlines: Vec<ModOutline>) {
         self.outlines = outlines.into_iter().take(OUTLINES).collect();

@@ -3,9 +3,11 @@
 //! - a gold outline along each drumstick your saturation fills, in quarters,
 //! - the drumsticks, saturation and hearts the food in your hand would give, flashing,
 //! - a dark checkered bar under the hunger bar for exhaustion (single player: no packet
-//!   carries it, so not on a server).
+//!   carries it, so not on a server),
+//! - its food tooltip (drumsticks for hunger, small gold ones for saturation) beside the held
+//!   item's name over the hotbar: the mod API has no tooltips yet.
 //!
-//! Not ported: item tooltips (the mod API has none yet) and the config screen.
+//! Not ported: the config screen.
 use horizon_mod_sdk::{
     Mod, Registration, game, input,
     render::{self, FillShape, Rect, Shape, SpriteShape},
@@ -64,6 +66,32 @@ const GOLD: [(u8, u32); 4] = [
     (b'b', 0xDD_C2_41),
     (b'c', 0xC2_A1_00),
     (b'd', 0x9F_86_09),
+];
+/// AppleSkin's tooltip saturation icons (`icons.png` at y 27, 7 × 7): a quarter, half, three
+/// quarters, whole and none, and the colours of their letters.
+const SATURATION_SMALL: [[&str; 7]; 5] = [
+    [
+        "..a....", ".aba...", "abbba..", ".abbc..", "..aabcc", "....dbc", "....dd.",
+    ],
+    [
+        "..a....", ".aba...", "abbbc..", ".abbc..", "..adbcc", "....dbc", "....dd.",
+    ],
+    [
+        "..a....", ".abe...", "abbbc..", ".abbc..", "..ddbcc", "....dbc", "....dd.",
+    ],
+    [
+        "..e....", ".ebe...", "cbbbc..", ".dbbc..", "..ddbcc", "....dbc", "....dd.",
+    ],
+    [
+        "..a....", ".aba...", "abbba..", ".abba..", "..aabaa", "....aba", "....aa.",
+    ],
+];
+const SMALL_COLORS: [(u8, u32); 5] = [
+    (b'a', 0x0A_0A_0A),
+    (b'b', 0x28_28_28),
+    (b'c', 0xC2_A1_00),
+    (b'd', 0x9F_86_09),
+    (b'e', 0xDD_C2_41),
 ];
 /// The exhaustion underlay's checkered pixels, at AppleSkin's 0.75 opacity.
 const EXHAUSTION: u32 = 0xBF_28_28_28;
@@ -167,22 +195,117 @@ fn saturation_overlay(
         } else {
             0
         };
-        let (x, y) = food_icon(gui, i);
-        for (row, line) in SATURATION[variant].iter().enumerate() {
-            // A run of one colour is one box.
-            let bytes = line.as_bytes();
-            let mut col = 0;
-            while col < bytes.len() {
-                let c = bytes[col];
-                let run = bytes[col..].iter().take_while(|&&b| b == c).count();
-                if let Some(&(_, rgb)) = GOLD.iter().find(|(k, _)| *k == c) {
-                    let (px, py) = (x + col as f32, y + row as f32);
-                    out.push(fill(px, py, run as f32, 1.0, argb(alpha, rgb)));
-                }
-                col += run;
+        pixels(out, &SATURATION[variant], &GOLD, food_icon(gui, i), alpha);
+    }
+}
+
+/// Pixel art at `(x, y)`: each letter of `art` in its colour from `palette`, `.` clear.
+fn pixels(
+    out: &mut Vec<Shape>,
+    art: &[&str],
+    palette: &[(u8, u32)],
+    (x, y): (f32, f32),
+    alpha: f32,
+) {
+    for (row, line) in art.iter().enumerate() {
+        // A run of one colour is one box.
+        let bytes = line.as_bytes();
+        let mut col = 0;
+        while col < bytes.len() {
+            let c = bytes[col];
+            let run = bytes[col..].iter().take_while(|&&b| b == c).count();
+            if let Some(&(_, rgb)) = palette.iter().find(|(k, _)| *k == c) {
+                let (px, py) = (x + col as f32, y + row as f32);
+                out.push(fill(px, py, run as f32, 1.0, argb(alpha, rgb)));
             }
+            col += run;
         }
     }
+}
+
+/// AppleSkin's food tooltip (`TooltipOverlayHandler`) beside the held item's name: a drumstick
+/// per 2 hunger and a small gold one per 2 saturation, right to left as AppleSkin draws them
+/// (a half one on the left), fading with the name. More than 10 of either is one and "xN".
+fn name_tag(
+    name: &render::ItemName,
+    value: &input::FoodValue,
+    text_width: &dyn Fn(&str) -> f32,
+) -> Vec<Shape> {
+    let mut out = Vec::new();
+    let alpha = name.alpha;
+    let count = |bars: u32| match bars {
+        1..=10 => (bars, None),
+        _ => (1, Some(format!("x{bars}"))),
+    };
+    let (hunger_bars, hunger_text) = count(value.nutrition.div_ceil(2));
+    if value.nutrition == 0 {
+        return out;
+    }
+    let saturation = value.saturation.abs();
+    let (saturation_bars, saturation_text) = count((saturation / 2.0).ceil() as u32);
+    let (full, half) = if value.hunger_effect {
+        ("hud/food_full_hunger", "hud/food_half_hunger")
+    } else {
+        ("hud/food_full", "hud/food_half")
+    };
+    // The 9-pixel icons around the name's 8-pixel letters, 4 pixels after it.
+    let (mut x, y) = (name.rect.x + name.rect.w + 4.0, name.rect.y - 1.0);
+    for i in 0..hunger_bars {
+        let at = (x + (hunger_bars - 1 - i) as f32 * 9.0, y);
+        sprite(&mut out, "hud/food_empty", at, alpha);
+        let icon = if value.nutrition == i * 2 + 1 {
+            half
+        } else {
+            full
+        };
+        sprite(&mut out, icon, at, alpha * 0.25);
+        sprite(&mut out, icon, at, alpha);
+    }
+    x += hunger_bars as f32 * 9.0;
+    let label = |out: &mut Vec<Shape>, x: &mut f32, text: Option<String>| {
+        if let Some(text) = text {
+            out.push(Shape::Text(render::TextShape {
+                at: render::Point {
+                    x: *x + 1.0,
+                    y: name.rect.y,
+                },
+                color: 0xAA_AA_AA,
+                centered: false,
+                shadow: true,
+                text: text.clone(),
+            }));
+            *x += text_width(&text) + 2.0;
+        }
+    };
+    label(&mut out, &mut x, hunger_text);
+    x += 2.0;
+    for i in 0..saturation_bars {
+        let k = (i * 2) as f32;
+        let share = (saturation - k) / 2.0;
+        let variant = if share >= 1.0 {
+            3
+        } else if share > 0.5 {
+            2
+        } else if share > 0.25 {
+            1
+        } else if share > 0.0 {
+            0
+        } else {
+            4
+        };
+        let faded = if saturation <= k { 0.5 } else { 1.0 };
+        let at = (x + (saturation_bars - 1 - i) as f32 * 7.0, name.rect.y);
+        pixels(
+            &mut out,
+            &SATURATION_SMALL[variant],
+            &SMALL_COLORS,
+            at,
+            alpha * faded,
+        );
+    }
+    x += saturation_bars as f32 * 7.0;
+    label(&mut out, &mut x, saturation_text);
+    out
 }
 
 /// `FoodHelper.getEstimatedHealthIncrement(foodLevel, saturation, exhaustion)`: what natural
@@ -336,15 +459,14 @@ impl Mod for AppleSkin {
 
     fn tick(&mut self, _tick: u64) {
         self.flash.tick();
-        let now = match game::get_food() {
-            Some(food) => hud(
-                &food,
-                input::held_food().as_ref(),
-                render::gui_size(),
-                self.flash.alpha(),
-            ),
+        let held = input::held_food();
+        let mut now = match game::get_food() {
+            Some(food) => hud(&food, held.as_ref(), render::gui_size(), self.flash.alpha()),
             None => Hud::default(),
         };
+        if let (Some(name), Some(value)) = (render::held_name(), &held) {
+            now.over.extend(name_tag(&name, value, &render::text_width));
+        }
         let keys = (format!("{:?}", now.under), format!("{:?}", now.over));
         if keys.0 != self.last.0 {
             render::set_hud_under(&now.under);
@@ -491,6 +613,43 @@ mod tests {
         assert_eq!(alphas[23], 0.0);
         // A round trip is 32 ticks.
         assert_eq!(flash.unclamped, 0.0);
+    }
+
+    #[test]
+    fn the_name_shows_the_tooltip_s_drumsticks_and_saturation() {
+        // Bread (5, 6) named over the hotbar at x 190, 47 wide.
+        let name = render::ItemName {
+            text: "Bread".into(),
+            rect: Rect {
+                x: 190.0,
+                y: 181.0,
+                w: 47.0,
+                h: 9.0,
+            },
+            alpha: 1.0,
+        };
+        let tag = name_tag(&name, &food(5, 6.0), &|t| 6.0 * t.len() as f32);
+        // Three drumsticks right to left, each a container, the icon at 1/4 and the icon: the
+        // last (the leftmost) is the half one.
+        let mut want = ["hud/food_empty", "hud/food_full", "hud/food_full"].repeat(2);
+        want.extend(["hud/food_empty", "hud/food_half", "hud/food_half"]);
+        assert_eq!(sprites(&tag), want);
+        let leftmost = tag.iter().find_map(|s| match s {
+            Shape::Sprite(s) if s.sprite == "hud/food_half" => Some(s.rect.x),
+            _ => None,
+        });
+        assert_eq!(leftmost, Some(190.0 + 47.0 + 4.0));
+        // Three whole saturation icons of 23 pixels each.
+        let saturation: u32 = tag
+            .iter()
+            .map(|s| match s {
+                Shape::Fill(f) => f.rect.w as u32,
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(saturation, 3 * 23);
+        // Not food: nothing.
+        assert!(name_tag(&name, &food(0, 0.0), &|_| 0.0).is_empty());
     }
 
     #[test]

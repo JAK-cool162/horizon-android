@@ -499,6 +499,16 @@ A block's outline in the world.
 | `color` | `u32` | 0xAARRGGBB. |
 | `through` | `bool` | Drawn over the blocks in front of it, as the debug gizmos are; otherwise hidden behind them, as the block selection outline is. |
 
+### record `item-name`
+
+The held item's name over the hotbar, as the HUD last drew it.
+
+| Field | Type | |
+| --- | --- | --- |
+| `text` | `string` | The name as shown (a renamed item's own name). |
+| `rect` | `rect` | Where its text is, in GUI pixels: 9 high. |
+| `alpha` | `f32` | How opaque it is as it fades out, 0 to 1. |
+
 ### record `frame-rate`
 
 | Field | Type | |
@@ -538,6 +548,7 @@ A block's outline in the world.
 | `set-hud` | `func(shapes: list<shape>)` | Replaces the mod's HUD shapes: up to 1024, drawn every frame in order over the HUD (after the hotbar, the hearts and the hunger bar, under chat and screens), hidden with the HUD (F1). An empty list removes them. |
 | `set-hud-under` | `func(shapes: list<shape>)` | As `set-hud`, for shapes drawn under the hearts, armor, hunger and air bars (over the hotbar): a backdrop that shows around their icons. Level 11. |
 | `gui-size` | `func() -> tuple<f32, f32>` | The screen's size in GUI pixels (width, height), as of this tick. |
+| `held-name` | `func() -> option<item-name>` | The held item's name while the HUD shows it (for two seconds after switching to another item, then fading); none otherwise. Level 11. |
 | `shake` | `func(strength: f32, seconds: f32)` | Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that fades out over `seconds` (at most 10). Jolts add up to 1. The view turns, the player doesn't, and the player's Distortion Effects option scales it (0 turns it off). |
 | `set-corner` | `func(corner: corner, width: f32, height: f32, shapes: list<shape>)` | Replaces the mod's corner panel: shapes in GUI pixels from the top left of a `width` × `height` box that the game places in `corner`, stacked with the game's overlays and the other mods' panels (under the status effects at the top right), as `hud`'s panels are. |
 | `clear-corner` | `func()` | Removes the mod's corner panel. |

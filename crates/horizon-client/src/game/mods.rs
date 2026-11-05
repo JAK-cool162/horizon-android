@@ -668,6 +668,10 @@ impl Game<'_> {
             held_durability: self.mod_held_durability(),
             food: self.mod_food(),
             held_food: self.mod_held_food(),
+            held_name: self.held_name_place.as_ref().map(|p| {
+                let at = [p.x as f32, p.y as f32, p.width as f32];
+                (p.name.plain(), at, p.alpha as f32 / 255.0)
+            }),
             frame: self.frame_reading(),
             mappings,
             cps,

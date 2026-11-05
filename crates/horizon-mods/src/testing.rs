@@ -36,6 +36,9 @@ pub struct TestGame {
     pub saturation: f32,
     pub exhaustion: Option<f32>,
     pub held_food: Option<(u32, f32)>,
+    /// The held item's name over the hotbar (`render.held-name`), as the HUD would place it on
+    /// the harness's 427 × 240 GUI.
+    pub held_name: Option<String>,
     /// Capability `world`'s Overworld: the blocks a script set or the mod
     /// changed; every other block, and the other dimensions, are air. Every
     /// biome is the dimension's plainest: plains, nether wastes, the end.
@@ -146,6 +149,7 @@ impl TestGame {
             saturation: 5.0,
             exhaustion: Some(0.0),
             held_food: None,
+            held_name: None,
             world: Default::default(),
             bridge: Default::default(),
         };
@@ -202,6 +206,16 @@ impl TestGame {
                     saturation,
                     ..Default::default()
                 }),
+            // Centred over the hotbar, 59 above the bottom; 6 pixels a character stand in for
+            // the font.
+            held_name: self.held_name.as_ref().map(|name| {
+                let width = 6.0 * name.chars().count() as f32;
+                (
+                    name.clone(),
+                    [((427.0 - width) / 2.0).floor(), 181.0, width],
+                    1.0,
+                )
+            }),
             ..Snapshot::default()
         });
     }
@@ -452,6 +466,8 @@ pub struct PlayerSet {
     saturation: Option<f32>,
     exhaustion: Option<f32>,
     held_food: Option<(u32, f32)>,
+    /// The held item's name over the hotbar (`render.held-name`), `""` for none.
+    held_name: Option<String>,
     dimension: Option<String>,
     game_mode: Option<Mode>,
 }
@@ -759,6 +775,9 @@ impl Step {
             }
             if let Some((nutrition, saturation)) = set.held_food {
                 game.held_food = (nutrition > 0).then_some((nutrition, saturation));
+            }
+            if let Some(name) = &set.held_name {
+                game.held_name = (!name.is_empty()).then(|| name.clone());
             }
         }
         if let Some(set) = &self.clock {

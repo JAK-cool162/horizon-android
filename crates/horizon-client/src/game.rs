@@ -2421,6 +2421,8 @@ struct Game<'a> {
     titles: titles::Titles,
     /// `Hud.toolHighlightTimer`: the selected item name.
     tool_highlight: horizon_client::hud_overlays::ToolHighlight,
+    /// Where the last frame drew that name (for mods' `render.held-name`).
+    held_name_place: Option<horizon_client::hud_overlays::HeldNamePlace>,
     /// `Hud.autosaveIndicatorValue`.
     saving_indicator: horizon_client::hud_overlays::SavingIndicator,
     /// This game's world is autosaving this tick (`MinecraftServer.isSaving`).
@@ -8075,6 +8077,7 @@ impl Game<'_> {
         // max(Hud.leftHeight, Hud.rightHeight) after the bars: the item name and
         // the action bar sit above it.
         let mut bar_height = 39;
+        self.held_name_place = None;
         if show_hud {
             self.draw_spyglass(&mut batch);
             // Hud.extractCrosshair / extractItemHotbar / extractPlayerHealth /
@@ -8264,6 +8267,13 @@ impl Game<'_> {
             }
             if !spectator {
                 self.draw_selected_name(&mut batch, bar_height, !self.creative);
+                self.held_name_place = self.tool_highlight.placement(
+                    wi,
+                    hi,
+                    bar_height,
+                    !self.creative,
+                    &self.gui.atlas.font,
+                );
             }
             // Mods' HUD shapes, over the whole HUD (AppleSkin's outlines go on the hunger bar).
             self.draw_mod_shapes(&mut batch);
@@ -18176,6 +18186,7 @@ impl<'a> Game<'a> {
             command_source: None,
             titles: Default::default(),
             tool_highlight: Default::default(),
+            held_name_place: None,
             saving_indicator: Default::default(),
             autosaving: false,
             applied_modifiers: Vec::new(),

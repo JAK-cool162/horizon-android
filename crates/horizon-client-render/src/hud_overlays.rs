@@ -441,6 +441,17 @@ pub struct HeldName {
     pub custom_name: bool,
 }
 
+/// Where the selected item's name is drawn ([`ToolHighlight::placement`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeldNamePlace {
+    pub name: Text,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    /// 1 to 255.
+    pub alpha: i32,
+}
+
 /// `Hud.toolHighlightTimer` and `lastToolHighlight`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolHighlight {
@@ -480,11 +491,25 @@ impl ToolHighlight {
         background: u32,
     ) -> Vec<GuiDraw> {
         let mut out = Vec::new();
-        let Some(last) = &self.last else {
-            return out;
-        };
+        if let Some(at) = self.placement(w, h, bar_height, can_hurt, font) {
+            let color = crate::hud_layout::argb(at.alpha as u32, 255, 255, 255);
+            text_with_backdrop(&mut out, at.name, at.x, at.y, at.width, color, background);
+        }
+        out
+    }
+    /// Where `draw` puts the name while it shows: the name, its top left, width and alpha
+    /// (1 to 255).
+    pub fn placement(
+        &self,
+        w: i32,
+        h: i32,
+        bar_height: i32,
+        can_hurt: bool,
+        font: &Font,
+    ) -> Option<HeldNamePlace> {
+        let last = self.last.as_ref()?;
         if self.timer <= 0 {
-            return out;
+            return None;
         }
         let mut name = last.hover_name.clone().with_color(last.rarity_color);
         if last.custom_name {
@@ -500,11 +525,13 @@ impl ToolHighlight {
             y += 14;
         }
         let alpha = ((self.timer as f32 * 256.0 / 10.0) as i32).min(255);
-        if alpha > 0 {
-            let color = crate::hud_layout::argb(alpha as u32, 255, 255, 255);
-            text_with_backdrop(&mut out, name, x, y, str_width, color, background);
-        }
-        out
+        (alpha > 0).then_some(HeldNamePlace {
+            name,
+            x,
+            y,
+            width: str_width,
+            alpha,
+        })
     }
 }
 
