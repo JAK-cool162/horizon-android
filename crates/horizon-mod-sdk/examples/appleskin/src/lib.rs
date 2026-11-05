@@ -5,13 +5,57 @@
 //! - a dark checkered bar under the hunger bar for exhaustion (single player: no packet
 //!   carries it, so not on a server),
 //! - its food tooltip (drumsticks for hunger, small gold ones for saturation) beside the held
-//!   item's name over the hotbar: the mod API has no tooltips yet.
-//!
-//! Not ported: the config screen.
+//!   item's name over the hotbar, or the same as two numbers, or nothing: a choice on its page
+//!   in Options > Mods, kept in the mod's storage (the mod API has no tooltips yet).
 use horizon_mod_sdk::{
     Mod, Registration, game, input,
     render::{self, FillShape, Rect, Shape, SpriteShape},
+    storage,
+    ui::{self, ButtonWidget, TextWidget, Widget},
 };
+
+/// What shows beside the held food's name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tag {
+    /// AppleSkin's tooltip icons.
+    Icons,
+    /// One drumstick and its hunger, one saturation icon and its saturation.
+    Numbers,
+    Off,
+}
+impl Tag {
+    const KEY: &str = "name-tag";
+    fn load() -> Tag {
+        match storage::get(Tag::KEY).as_deref() {
+            Some(b"numbers") => Tag::Numbers,
+            Some(b"off") => Tag::Off,
+            _ => Tag::Icons,
+        }
+    }
+    fn next(self) -> Tag {
+        match self {
+            Tag::Icons => Tag::Numbers,
+            Tag::Numbers => Tag::Off,
+            Tag::Off => Tag::Icons,
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Tag::Icons => "Icons (AppleSkin)",
+            Tag::Numbers => "Numbers",
+            Tag::Off => "Off",
+        }
+    }
+    fn stored(self) -> &'static [u8] {
+        match self {
+            Tag::Icons => b"icons",
+            Tag::Numbers => b"numbers",
+            Tag::Off => b"off",
+        }
+    }
+}
+/// The settings page's button.
+const TAG_BUTTON: u32 = 1;
 
 /// AppleSkin's saturation overlay (`icons.png`, row 0): a quarter, half, three quarters and a
 /// whole drumstick's outline, one 9 × 9 icon each, and the colours of its letters.
@@ -122,6 +166,7 @@ impl Flash {
 
 struct AppleSkin {
     flash: Flash,
+    tag: Tag,
     /// The shapes last sent (their `Debug` form), under and over the bars: an unchanged HUD
     /// costs no call.
     last: (String, String),
@@ -308,6 +353,57 @@ fn name_tag(
     out
 }
 
+/// The short form of [`name_tag`]: one drumstick and the hunger, one whole saturation icon and
+/// the saturation ("8", "12.8"). The numbers can't fade (HUD text is opaque), so they go when
+/// the name is half faded.
+fn name_numbers(
+    name: &render::ItemName,
+    value: &input::FoodValue,
+    text_width: &dyn Fn(&str) -> f32,
+) -> Vec<Shape> {
+    let mut out = Vec::new();
+    if value.nutrition == 0 || name.alpha < 0.5 {
+        return out;
+    }
+    let full = if value.hunger_effect {
+        "hud/food_full_hunger"
+    } else {
+        "hud/food_full"
+    };
+    let text = |out: &mut Vec<Shape>, x: f32, text: &str| {
+        out.push(Shape::Text(render::TextShape {
+            at: render::Point { x, y: name.rect.y },
+            color: 0xFF_FF_FF,
+            centered: false,
+            shadow: true,
+            text: text.into(),
+        }));
+    };
+    let mut x = name.rect.x + name.rect.w + 4.0;
+    sprite(
+        &mut out,
+        "hud/food_empty",
+        (x, name.rect.y - 1.0),
+        name.alpha,
+    );
+    sprite(&mut out, full, (x, name.rect.y - 1.0), name.alpha);
+    x += 10.0;
+    let hunger = value.nutrition.to_string();
+    text(&mut out, x, &hunger);
+    x += text_width(&hunger) + 4.0;
+    let saturation = format!("{:.1}", value.saturation);
+    let saturation = saturation.strip_suffix(".0").unwrap_or(&saturation);
+    pixels(
+        &mut out,
+        &SATURATION_SMALL[3],
+        &SMALL_COLORS,
+        (x, name.rect.y),
+        name.alpha,
+    );
+    text(&mut out, x + 8.0, saturation);
+    out
+}
+
 /// `FoodHelper.getEstimatedHealthIncrement(foodLevel, saturation, exhaustion)`: what natural
 /// regeneration heals before the food runs below 18.
 fn regen_health(mut food: u32, mut saturation: f32, mut exhaustion: f32) -> f32 {
@@ -445,6 +541,23 @@ fn hud(
     hud
 }
 
+impl AppleSkin {
+    /// Its page in Options > Mods.
+    fn settings(&self) {
+        ui::set_settings(&[
+            Widget::Text(TextWidget {
+                id: 0,
+                text: "Food values beside the held item's name".into(),
+                color: 0,
+            }),
+            Widget::Button(ButtonWidget {
+                id: TAG_BUTTON,
+                label: format!("Food Values: {}", self.tag.label()),
+            }),
+        ]);
+    }
+}
+
 impl Mod for AppleSkin {
     fn init() -> Result<(Self, Registration), String> {
         let skin = AppleSkin {
@@ -452,9 +565,23 @@ impl Mod for AppleSkin {
                 unclamped: 0.0,
                 up: true,
             },
+            tag: Tag::load(),
             last: Default::default(),
         };
+        skin.settings();
         Ok((skin, Registration::new().on_tick()))
+    }
+
+    fn ui_settings_opened(&mut self) {
+        self.settings();
+    }
+
+    fn ui_select(&mut self, id: u32, _row: u32) {
+        if id == TAG_BUTTON {
+            self.tag = self.tag.next();
+            let _ = storage::set(Tag::KEY, self.tag.stored());
+            self.settings();
+        }
     }
 
     fn tick(&mut self, _tick: u64) {
@@ -465,7 +592,12 @@ impl Mod for AppleSkin {
             None => Hud::default(),
         };
         if let (Some(name), Some(value)) = (render::held_name(), &held) {
-            now.over.extend(name_tag(&name, value, &render::text_width));
+            let tag = match self.tag {
+                Tag::Icons => name_tag(&name, value, &render::text_width),
+                Tag::Numbers => name_numbers(&name, value, &render::text_width),
+                Tag::Off => Vec::new(),
+            };
+            now.over.extend(tag);
         }
         let keys = (format!("{:?}", now.under), format!("{:?}", now.over));
         if keys.0 != self.last.0 {
@@ -650,6 +782,40 @@ mod tests {
         assert_eq!(saturation, 3 * 23);
         // Not food: nothing.
         assert!(name_tag(&name, &food(0, 0.0), &|_| 0.0).is_empty());
+    }
+
+    #[test]
+    fn the_short_form_is_one_icon_and_a_number_each() {
+        let name = render::ItemName {
+            text: "Steak".into(),
+            rect: Rect {
+                x: 190.0,
+                y: 181.0,
+                w: 30.0,
+                h: 9.0,
+            },
+            alpha: 1.0,
+        };
+        let texts = |shapes: &[Shape]| -> Vec<String> {
+            shapes
+                .iter()
+                .filter_map(|s| match s {
+                    Shape::Text(t) => Some(t.text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let steak = name_numbers(&name, &food(8, 12.8), &|t| 6.0 * t.len() as f32);
+        assert_eq!(sprites(&steak), ["hud/food_empty", "hud/food_full"]);
+        assert_eq!(texts(&steak), ["8", "12.8"]);
+        // Bread's 6.0 reads "6".
+        assert_eq!(
+            texts(&name_numbers(&name, &food(5, 6.0), &|_| 6.0)),
+            ["5", "6"]
+        );
+        // Half faded: gone, as the numbers can't fade.
+        let fading = render::ItemName { alpha: 0.4, ..name };
+        assert!(name_numbers(&fading, &food(8, 12.8), &|_| 6.0).is_empty());
     }
 
     #[test]
