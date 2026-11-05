@@ -46,8 +46,8 @@ const JAVA: &[(&[&str], &str, &str, Fit)] = &[
             "net/minecraft/world/food/FoodProperties",
         ],
         "Reads hunger, food values and saturation",
-        "Partly: the player's food level, but no saturation or food values yet",
-        Fit::Partly,
+        "Yes: food, saturation, exhaustion (single player) and the held food's values",
+        Fit::Yes,
     ),
     (
         &[
@@ -58,8 +58,8 @@ const JAVA: &[(&[&str], &str, &str, Fit)] = &[
             "Item$TooltipContext",
         ],
         "Adds lines or pictures to item tooltips",
-        "No: the API has no item tooltips yet",
-        Fit::No,
+        "Partly: no tooltips, but a mod can draw beside the held item's name",
+        Fit::Partly,
     ),
     (
         &[
