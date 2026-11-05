@@ -666,6 +666,8 @@ impl Game<'_> {
             gui_size: self.gui_size(),
             held: self.mod_held(),
             held_durability: self.mod_held_durability(),
+            food: self.mod_food(),
+            held_food: self.mod_held_food(),
             frame: self.frame_reading(),
             mappings,
             cps,

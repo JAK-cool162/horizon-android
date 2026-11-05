@@ -69,6 +69,21 @@ interface game {
     /// (`minecraft:oak_log[axis=y]`), as of this tick; none where no chunk is loaded there,
     /// and on the title screen. On a server, what it sent the player. Level 10.
     get-block: func(x: s32, y: s32, z: s32) -> option<string>;
+    /// The player's hunger, as the HUD shows it and the food rules count it.
+    record food-stats {
+        /// 0 to 20, as the hunger bar.
+        food: u32,
+        /// 0 to the food level: spent before food when exhaustion passes 4.
+        saturation: f32,
+        /// 0 to 4: each 4 takes a point of saturation, or of food when there is none. The
+        /// server's own count: none where the world runs elsewhere (a server; single player's
+        /// server thread), which doesn't send it.
+        exhaustion: option<f32>,
+        /// The hunger bar is on the HUD: survival or adventure, not riding.
+        shown: bool,
+    }
+    /// The player's hunger, as of this tick; none on the title screen. Level 11.
+    get-food: func() -> option<food-stats>;
 }
 
 /// Capability `chat`: messages only the local player sees.
@@ -269,6 +284,16 @@ interface input {
     /// The main hand's durability, as of this tick; none when it is empty or doesn't wear
     /// down. Level 10.
     held-durability: func() -> option<durability>;
+    /// What eating an item gives, as its food component says.
+    record food-value {
+        /// Hunger points (half drumsticks).
+        nutrition: u32,
+        /// Saturation added, up to the food level then.
+        saturation: f32,
+    }
+    /// What eating the main hand's stack would give, as of this tick; none when it is empty or
+    /// isn't food. Level 11.
+    held-food: func() -> option<food-value>;
     /// The events since the last call, oldest first.
     poll: func() -> list<event>;
     /// Takes the mouse wheel while playing (true) or gives it back: while

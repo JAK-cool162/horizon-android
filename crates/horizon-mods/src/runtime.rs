@@ -184,6 +184,11 @@ pub struct Snapshot {
     /// The main hand's durability: uses left, maximum, Unbreaking level
     /// (`input.held-durability`).
     pub held_durability: Option<(u32, u32, u32)>,
+    /// The player's hunger (`game.get-food`): food, saturation, the server's exhaustion when
+    /// this game runs the world, and whether the HUD shows the hunger bar.
+    pub food: Option<(u32, f32, Option<f32>, bool)>,
+    /// What eating the main hand's stack gives: nutrition, saturation (`input.held-food`).
+    pub held_food: Option<(u32, f32)>,
     /// The game's frame counter: fps, min, 1% low (`render.frame-stats`).
     pub frame: (u32, u32, u32),
     /// The movement and click mappings `input.mapping` answers for:
@@ -1763,6 +1768,15 @@ impl game::Host for State {
         let view = self.world.lock().ok()?;
         view.as_ref()?.block(dimension, x, y, z)
     }
+    fn get_food(&mut self) -> Option<game::FoodStats> {
+        let (food, saturation, exhaustion, shown) = self.snapshot.food?;
+        Some(game::FoodStats {
+            food,
+            saturation,
+            exhaustion,
+            shown,
+        })
+    }
 }
 impl browser::Host for State {
     fn set_items(&mut self, items: Vec<BrowserStack>) {
@@ -2116,6 +2130,13 @@ impl input::Host for State {
             left,
             max,
             unbreaking,
+        })
+    }
+    fn held_food(&mut self) -> Option<input::FoodValue> {
+        let (nutrition, saturation) = self.snapshot.held_food?;
+        Some(input::FoodValue {
+            nutrition,
+            saturation,
         })
     }
     fn poll(&mut self) -> Vec<InputEvent> {

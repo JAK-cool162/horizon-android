@@ -1,0 +1,13 @@
+id = "appleskin"
+name = "AppleSkin H"
+version = "1.0.0"
+description = "AppleSkin's food HUD on Horizon's own hunger bar: a gold outline shows your saturation, the drumsticks the food in your hand would give flash, and a shade shows your exhaustion (where the game runs the world). A port of squeek502's AppleSkin (Unlicense) with the Horizon mod API; no item tooltips yet."
+authors = ["squeek502 (AppleSkin)", "Horizon Android"]
+# The Horizon mod API the SDK targets.
+api = "0.1"
+# client: runs in the player's game.
+side = "client"
+# game-read: your food and saturation; input: the food in your hand; render: drawing on the
+# hunger bar.
+capabilities = ["game-read", "input", "render"]
+experimental = ["input", "render"]

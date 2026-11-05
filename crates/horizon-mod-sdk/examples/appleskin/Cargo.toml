@@ -1,0 +1,16 @@
+[package]
+name = "appleskin-h"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Example Horizon mod: AppleSkin's food HUD (saturation, held food, exhaustion) on the hunger bar"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-mod-sdk = { path = "../.." }
+
+[lints]
+workspace = true

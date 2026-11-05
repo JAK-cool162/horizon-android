@@ -157,12 +157,24 @@ A block along the player's view.
 | `z` | `f64` |  |
 | `block` | `string` | `minecraft:stone`, ... |
 
+### record `food-stats`
+
+The player's hunger, as the HUD shows it and the food rules count it.
+
+| Field | Type | |
+| --- | --- | --- |
+| `food` | `u32` | 0 to 20, as the hunger bar. |
+| `saturation` | `f32` | 0 to the food level: spent before food when exhaustion passes 4. |
+| `exhaustion` | `option<f32>` | 0 to 4: each 4 takes a point of saturation, or of food when there is none. The server's own count: none where the world runs elsewhere (a server; single player's server thread), which doesn't send it. |
+| `shown` | `bool` | The hunger bar is on the HUD: survival or adventure, not riding. |
+
 | Function | Signature | What it does |
 | --- | --- | --- |
 | `get-player` | `func() -> option<player>` | None on the title screen. |
 | `get-clock` | `func() -> option<clock>` | None on the title screen. |
 | `raycast` | `func(distance: f32) -> option<hit>` | The first block along the player's view (fluids pass), up to `distance` blocks (at most 1024; past the loaded chunks, across the distant terrain when LOD Distance is on), as of this tick. None when nothing is hit, and on the title screen. |
 | `get-block` | `func(x: s32, y: s32, z: s32) -> option<string>` | The block state at a position of the player's dimension as the player's game has it (`minecraft:oak_log[axis=y]`), as of this tick; none where no chunk is loaded there, and on the title screen. On a server, what it sent the player. Level 10. |
+| `get-food` | `func() -> option<food-stats>` | The player's hunger, as of this tick; none on the title screen. Level 11. |
 
 ## `chat`
 
@@ -348,6 +360,15 @@ What a damageable item wears down.
 | `max` | `u32` |  |
 | `unbreaking` | `u32` | Its Unbreaking level: each use costs durability with a chance of 1 in (level + 1) (armour aside). |
 
+### record `food-value`
+
+What eating an item gives, as its food component says.
+
+| Field | Type | |
+| --- | --- | --- |
+| `nutrition` | `u32` | Hunger points (half drumsticks). |
+| `saturation` | `f32` | Saturation added, up to the food level then. |
+
 ### record `mapping-state`
 
 A mapping as the player has bound it.
@@ -363,6 +384,7 @@ A mapping as the player has bound it.
 | `register-key` | `func(name: string, label: string, key: string) -> result<_, string>` | A key of the mod's: `name` comes back in `key-down` and `key-up`, `label` says what it does, `key` is the key as options.txt writes it (`key.keyboard.r`), the default: the player can bind another one on the mod's page in Options > Mods, and that one wins. At most 16; an unknown key is an error. |
 | `held` | `func() -> option<held-item>` | The main hand's stack, as of this tick; none when it is empty. |
 | `held-durability` | `func() -> option<durability>` | The main hand's durability, as of this tick; none when it is empty or doesn't wear down. Level 10. |
+| `held-food` | `func() -> option<food-value>` | What eating the main hand's stack would give, as of this tick; none when it is empty or isn't food. Level 11. |
 | `poll` | `func() -> list<event>` | The events since the last call, oldest first. |
 | `claim-wheel` | `func(on: bool)` | Takes the mouse wheel while playing (true) or gives it back: while taken, its steps are the mod's `wheel` events and the hotbar doesn't move. The game gives it back when the mod stops. |
 | `mapping` | `func(name: string) -> option<mapping-state>` | A movement or click mapping as the player has bound it: `key.forward`, `key.left`, `key.back`, `key.right`, `key.jump`, `key.sneak`, `key.sprint`, `key.attack` or `key.use`. None for another name. |

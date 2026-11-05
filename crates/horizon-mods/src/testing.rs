@@ -31,6 +31,11 @@ pub struct TestGame {
     /// Every name that joined, for their id.
     names: Vec<String>,
     tick: u64,
+    /// The player's saturation and exhaustion (`game.get-food`; the food is the player's), and
+    /// what the held stack would give if eaten (`input.held-food`).
+    pub saturation: f32,
+    pub exhaustion: Option<f32>,
+    pub held_food: Option<(u32, f32)>,
     /// Capability `world`'s Overworld: the blocks a script set or the mod
     /// changed; every other block, and the other dimensions, are air. Every
     /// biome is the dimension's plainest: plains, nether wastes, the end.
@@ -138,6 +143,9 @@ impl TestGame {
             players: Vec::new(),
             names: Vec::new(),
             tick: 0,
+            saturation: 5.0,
+            exhaustion: Some(0.0),
+            held_food: None,
             world: Default::default(),
             bridge: Default::default(),
         };
@@ -176,6 +184,15 @@ impl TestGame {
             players: self.players.clone(),
             // The GUI of a 1280 x 720 window at scale 3, as the trial run's.
             gui_size: (427.0, 240.0),
+            food: self.player.as_ref().map(|p| {
+                (
+                    p.food,
+                    self.saturation.min(p.food as f32),
+                    self.exhaustion,
+                    true,
+                )
+            }),
+            held_food: self.held_food,
             ..Snapshot::default()
         });
     }
@@ -421,6 +438,11 @@ pub struct PlayerSet {
     pitch: Option<f32>,
     health: Option<f32>,
     food: Option<u32>,
+    /// Client mods: saturation and exhaustion (`game.get-food`), and the held stack's food
+    /// value as `[nutrition, saturation]`, `[0, 0]` for none (`input.held-food`).
+    saturation: Option<f32>,
+    exhaustion: Option<f32>,
+    held_food: Option<(u32, f32)>,
     dimension: Option<String>,
     game_mode: Option<Mode>,
 }
@@ -539,6 +561,10 @@ pub struct Expect {
     /// The panel's lines (`[]`: no panel) and its corner.
     panel: Option<Vec<String>>,
     corner: Option<String>,
+    /// The sprites of the mod's HUD shapes (`render.set-hud`) after the step, in order.
+    hud_sprites: Option<Vec<String>>,
+    /// How many filled boxes its HUD shapes hold.
+    hud_fills: Option<usize>,
     /// Blocks of the Overworld after the step, the mod's changes made
     /// (capability `world`).
     blocks: Option<Vec<BlockSet>>,
@@ -716,6 +742,13 @@ impl Step {
             match actor {
                 Some(i) => set.apply_server(&mut game.players[i]),
                 None => set.apply(game.player.get_or_insert_with(default_player)),
+            }
+            game.saturation = set.saturation.unwrap_or(game.saturation);
+            if set.exhaustion.is_some() {
+                game.exhaustion = set.exhaustion;
+            }
+            if let Some((nutrition, saturation)) = set.held_food {
+                game.held_food = (nutrition > 0).then_some((nutrition, saturation));
             }
         }
         if let Some(set) = &self.clock {
@@ -947,6 +980,26 @@ impl Step {
         }
         if let Some(want) = &e.answer {
             same("answer", &Some(want.clone()), &answer)?;
+        }
+        if e.hud_sprites.is_some() || e.hud_fills.is_some() {
+            let shapes: Vec<&crate::Shape> = game.mods.hud_shapes().collect();
+            if let Some(want) = &e.hud_sprites {
+                let got: Vec<String> = shapes
+                    .iter()
+                    .filter_map(|s| match s {
+                        crate::Shape::Sprite(sprite) => Some(sprite.sprite.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                same("hud-sprites", want, &got)?;
+            }
+            if let Some(want) = e.hud_fills {
+                let got = shapes
+                    .iter()
+                    .filter(|s| matches!(s, crate::Shape::Fill(_)))
+                    .count();
+                same("hud-fills", &want, &got)?;
+            }
         }
         if let Some(want) = &e.corner {
             let got = game.panel().map(|p| corner_name(p.corner).to_string());

@@ -85,6 +85,19 @@ impl Game<'_> {
             )
         })
     }
+    /// The player's hunger for `game.get-food`: food, saturation, exhaustion (only where this
+    /// game runs the world: a client is never sent it) and whether the hunger bar shows.
+    pub(super) fn mod_food(&self) -> Option<(u32, f32, Option<f32>, bool)> {
+        let food = &self.player.as_ref()?.health.food;
+        let exhaustion = self.remote.is_none().then_some(food.exhaustion);
+        let shown = !self.creative && !self.spectator() && self.riding.is_none();
+        Some((food.food.max(0) as u32, food.saturation, exhaustion, shown))
+    }
+    /// What eating the main hand's stack gives, for `input.held-food`.
+    pub(super) fn mod_held_food(&self) -> Option<(u32, f32)> {
+        let stack = self.inventory.get(self.selected)?.as_ref()?;
+        self.res.items().get(&stack.item)?.food
+    }
     /// The use button while playing: true when a mod claimed the held item,
     /// so the game does nothing else with it (no placing, eating, swing).
     pub(super) fn sandbox_mod_use(&mut self, button: MouseButton, pressed: bool) -> bool {

@@ -37,6 +37,7 @@ members = [
     "crates/horizon-optifine",
     "crates/horizon-shader-api",
     "crates/horizon-release-sign",
+    "crates/horizon-mod-sdk/examples/appleskin",
     "crates/horizon-mod-sdk/examples/coords-hud",
     "crates/horizon-mod-sdk/examples/fps-counter",
     "crates/horizon-mod-sdk/examples/right-harvest",

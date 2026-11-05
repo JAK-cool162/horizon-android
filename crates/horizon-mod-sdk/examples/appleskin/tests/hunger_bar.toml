@@ -1,0 +1,23 @@
+# AppleSkin H in the game's test harness: what it draws on the hunger bar.
+
+# 13 food, 5 saturation: gold outlines on two whole drumsticks and half of the third, no
+# exhaustion shade at 0.
+[[step]]
+player = { food = 13, saturation = 5.0, exhaustion = 0.0 }
+ticks = 1
+expect.hud-fills = 10
+expect.hud-sprites = []
+
+# Bread in hand (5 food, 6 saturation): drumsticks 14 to 18 flash, and the saturation it adds is
+# outlined too; exhaustion past 2 shades half the bar.
+[[step]]
+player = { held-food = [5, 6.0], exhaustion = 2.0 }
+ticks = 1
+expect.hud-sprites = ["hud/food_full", "hud/food_full", "hud/food_full"]
+
+# Nothing in hand and a full bar: outlines only.
+[[step]]
+player = { food = 20, saturation = 20.0, held-food = [0, 0.0], exhaustion = 0.0 }
+ticks = 1
+expect.hud-fills = 40
+expect.hud-sprites = []
