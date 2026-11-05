@@ -75,9 +75,9 @@ interface game {
         food: u32,
         /// 0 to the food level: spent before food when exhaustion passes 4.
         saturation: f32,
-        /// 0 to 4: each 4 takes a point of saturation, or of food when there is none. The
-        /// server's own count: none where the world runs elsewhere (a server; single player's
-        /// server thread), which doesn't send it.
+        /// 0 to 4: each 4 takes a point of saturation, or of food when there is none. No
+        /// packet carries it: known in single player (on the server thread too), none on a
+        /// server or a LAN world someone else hosts.
         exhaustion: option<f32>,
         /// The hunger bar is on the HUD: survival or adventure, not riding.
         shown: bool,

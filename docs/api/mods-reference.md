@@ -165,7 +165,7 @@ The player's hunger, as the HUD shows it and the food rules count it.
 | --- | --- | --- |
 | `food` | `u32` | 0 to 20, as the hunger bar. |
 | `saturation` | `f32` | 0 to the food level: spent before food when exhaustion passes 4. |
-| `exhaustion` | `option<f32>` | 0 to 4: each 4 takes a point of saturation, or of food when there is none. The server's own count: none where the world runs elsewhere (a server; single player's server thread), which doesn't send it. |
+| `exhaustion` | `option<f32>` | 0 to 4: each 4 takes a point of saturation, or of food when there is none. No packet carries it: known in single player (on the server thread too), none on a server or a LAN world someone else hosts. |
 | `shown` | `bool` | The hunger bar is on the HUD: survival or adventure, not riding. |
 
 | Function | Signature | What it does |

@@ -85,11 +85,17 @@ impl Game<'_> {
             )
         })
     }
-    /// The player's hunger for `game.get-food`: food, saturation, exhaustion (only where this
-    /// game runs the world: a client is never sent it) and whether the hunger bar shows.
+    /// The player's hunger for `game.get-food`: food, saturation, exhaustion (where this game
+    /// or its own server thread runs the world: no packet carries it) and whether the hunger bar
+    /// shows.
     pub(super) fn mod_food(&self) -> Option<(u32, f32, Option<f32>, bool)> {
         let food = &self.player.as_ref()?.health.food;
-        let exhaustion = self.remote.is_none().then_some(food.exhaustion);
+        // No packet carries exhaustion: a client of its own server thread asks it (as
+        // AppleSkin's sync packet does), other clients don't know it.
+        let exhaustion = match &self.integrated {
+            Some(server) => server.owner_exhaustion(),
+            None => self.remote.is_none().then_some(food.exhaustion),
+        };
         let shown = !self.creative && !self.spectator() && self.riding.is_none();
         Some((food.food.max(0) as u32, food.saturation, exhaustion, shown))
     }

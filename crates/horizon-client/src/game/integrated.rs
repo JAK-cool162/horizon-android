@@ -30,7 +30,7 @@ use std::{
     net::TcpListener,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, Ordering},
         mpsc::{Receiver, Sender, channel, sync_channel},
     },
     thread::JoinHandle,
@@ -60,6 +60,10 @@ struct Flags {
     entity_distance: AtomicU32,
     /// `MinecraftServer.isCurrentlySaving`: the server is autosaving.
     saving: AtomicBool,
+    /// The window's player's `FoodData.exhaustionLevel` on the server, which no packet
+    /// carries (mods read it through `game.get-food`): its `f32` bits above bit 32, 0 before
+    /// the player is in the world.
+    owner_exhaustion: AtomicU64,
     /// Splitscreen players joined through memory (offline uuids): let in although the world is
     /// not open to the LAN, and the game no longer pauses while they play.
     split_players: Mutex<Vec<u128>>,
@@ -102,6 +106,11 @@ impl Integrated {
     }
     pub fn smoothed_tick_ms(&self) -> f32 {
         f32::from_bits(self.flags.smoothed_tick_ms.load(Ordering::Relaxed))
+    }
+    /// The window's player's exhaustion on the server, after its last tick.
+    pub fn owner_exhaustion(&self) -> Option<f32> {
+        let bits = self.flags.owner_exhaustion.load(Ordering::Relaxed);
+        (bits >> 32 != 0).then(|| f32::from_bits(bits as u32))
     }
     /// Asks for the debug entries' server lines at `at`, or stops asking.
     pub(super) fn request_debug(&self, at: Option<(Dim, [i32; 3])>) {
@@ -640,6 +649,11 @@ impl Game<'_> {
                     self.debug_charts.smoothed_tick_ms.to_bits(),
                     Ordering::Relaxed,
                 );
+                let exhaustion = self.owner_exhaustion_on_server();
+                flags.owner_exhaustion.store(
+                    exhaustion.map_or(0, |e| 1 << 32 | u64::from(e.to_bits())),
+                    Ordering::Relaxed,
+                );
                 if let (Some(terrain), Ok(mut terrains)) =
                     (self.end.locator(), flags.terrain.lock())
                 {
@@ -651,6 +665,19 @@ impl Game<'_> {
             self.wait_for_next_server_tick(&mut next, paused);
         }
         self.stop_integrated()
+    }
+
+    /// The window's player's exhaustion, as the server ticks it.
+    fn owner_exhaustion_on_server(&self) -> Option<f32> {
+        let owner = self.serving.as_ref()?.owner;
+        let guest = self
+            .lan
+            .as_ref()?
+            .hub
+            .guests
+            .iter()
+            .find(|g| g.uuid == owner && g.placed)?;
+        Some(guest.motion.as_ref()?.health.food.exhaustion)
     }
 
     /// After the level of `dim` ticked: the window's debug entries' server

@@ -2,8 +2,8 @@
 //! the mod API's HUD shapes over the vanilla bar:
 //! - a gold outline over each drumstick your saturation covers,
 //! - the drumsticks (and saturation) the food in your hand would add, flashing,
-//! - a light shade across the bar for exhaustion, where the game runs the world (a client is
-//!   never sent it: on a server and single player's server thread it isn't shown).
+//! - a light shade across the bar for exhaustion, in single player (no packet carries it: on
+//!   a server it isn't shown).
 use horizon_mod_sdk::{
     Mod, Registration, game, input,
     render::{self, FillShape, Rect, Shape, SpriteShape},
@@ -57,7 +57,12 @@ fn flash(tick: u64) -> u32 {
 }
 
 /// Everything AppleSkin draws for this food, held food and screen.
-fn shapes(food: &game::FoodStats, held: Option<input::FoodValue>, (w, h): (f32, f32), tick: u64) -> Vec<Shape> {
+fn shapes(
+    food: &game::FoodStats,
+    held: Option<input::FoodValue>,
+    (w, h): (f32, f32),
+    tick: u64,
+) -> Vec<Shape> {
     let mut out = Vec::new();
     if !food.shown {
         return out;
@@ -93,7 +98,12 @@ fn shapes(food: &game::FoodStats, held: Option<input::FoodValue>, (w, h): (f32, 
             let (x, y) = icon(w, h, n);
             out.push(Shape::Sprite(SpriteShape {
                 sprite: sprite.into(),
-                rect: Rect { x, y, w: 9.0, h: 9.0 },
+                rect: Rect {
+                    x,
+                    y,
+                    w: 9.0,
+                    h: 9.0,
+                },
                 color: tint,
             }));
         }
@@ -163,7 +173,10 @@ mod tests {
     #[test]
     fn held_food_flashes_the_drumsticks_it_adds() {
         // Bread (5 food, 6 saturation) at 13 food: drumsticks 7 to 9 (14 to 18) flash full.
-        let bread = input::FoodValue { nutrition: 5, saturation: 6.0 };
+        let bread = input::FoodValue {
+            nutrition: 5,
+            saturation: 6.0,
+        };
         let sprites: Vec<String> = shapes(&food(13, 5.0), Some(bread), (427.0, 240.0), 5)
             .into_iter()
             .filter_map(|s| match s {
@@ -173,9 +186,11 @@ mod tests {
             .collect();
         assert_eq!(sprites, ["hud/food_full"; 3]);
         // A full bar: nothing to add.
-        assert!(shapes(&food(20, 5.0), Some(bread), (427.0, 240.0), 5)
-            .iter()
-            .all(|s| matches!(s, Shape::Fill(_))));
+        assert!(
+            shapes(&food(20, 5.0), Some(bread), (427.0, 240.0), 5)
+                .iter()
+                .all(|s| matches!(s, Shape::Fill(_)))
+        );
     }
 
     #[test]
