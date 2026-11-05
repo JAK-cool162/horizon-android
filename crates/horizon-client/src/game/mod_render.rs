@@ -77,6 +77,7 @@ impl Shake {
 #[cfg(not(feature = "mods"))]
 impl Game<'_> {
     pub(super) fn draw_mod_shapes(&self, _batch: &mut HudBatch) {}
+    pub(super) fn draw_mod_shapes_under(&self, _batch: &mut HudBatch) {}
     pub(super) fn shaken_view(&mut self, yaw: f32, pitch: f32) -> (f32, f32) {
         (yaw, pitch)
     }
@@ -87,6 +88,12 @@ impl Game<'_> {
     /// The running mods' HUD shapes, in order, over the HUD.
     pub(super) fn draw_mod_shapes(&self, batch: &mut HudBatch) {
         for shape in self.mods.mods.hud_shapes() {
+            self.draw_shapes(batch, std::slice::from_ref(shape), (0.0, 0.0));
+        }
+    }
+    /// Their shapes under the hearts and hunger bar (`render.set-hud-under`).
+    pub(super) fn draw_mod_shapes_under(&self, batch: &mut HudBatch) {
+        for shape in self.mods.mods.hud_shapes_under() {
             self.draw_shapes(batch, std::slice::from_ref(shape), (0.0, 0.0));
         }
     }

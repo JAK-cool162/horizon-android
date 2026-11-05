@@ -86,10 +86,13 @@ impl Game<'_> {
         })
     }
     /// The player's hunger for `game.get-food`: food, saturation, exhaustion (where this game
-    /// or its own server thread runs the world: no packet carries it) and whether the hunger bar
-    /// shows.
-    pub(super) fn mod_food(&self) -> Option<(u32, f32, Option<f32>, bool)> {
-        let food = &self.player.as_ref()?.health.food;
+    /// or its own server thread runs the world: no packet carries it), whether the hunger bar
+    /// shows, and what bears on healing.
+    pub(super) fn mod_food(&mut self) -> Option<horizon_mods::FoodState> {
+        // The computed attribute caches its value, so it reads through `&mut`.
+        let max_health = self.player.as_mut()?.attribute("minecraft:max_health");
+        let p = self.player.as_ref()?;
+        let food = &p.health.food;
         // No packet carries exhaustion: a client of its own server thread asks it (as
         // AppleSkin's sync packet does), other clients don't know it.
         let exhaustion = match &self.integrated {
@@ -97,12 +100,54 @@ impl Game<'_> {
             None => self.remote.is_none().then_some(food.exhaustion),
         };
         let shown = !self.creative && !self.spectator() && self.riding.is_none();
-        Some((food.food.max(0) as u32, food.saturation, exhaustion, shown))
+        let rules = &self.world.health_rules;
+        let effects = &self.potions.effects;
+        Some(horizon_mods::FoodState {
+            food: food.food.max(0) as u32,
+            saturation: food.saturation,
+            exhaustion,
+            shown,
+            health: p.health.health(),
+            max_health: max_health.unwrap_or(20.0) as f32,
+            natural_regeneration: rules.natural_regeneration
+                && rules.difficulty != horizon_world::food::Difficulty::Peaceful,
+            health_effect: ["poison", "wither", "regeneration"]
+                .iter()
+                .any(|e| effects.get(e).is_some()),
+            hardcore: self.level.hardcore,
+        })
     }
     /// What eating the main hand's stack gives, for `input.held-food`.
-    pub(super) fn mod_held_food(&self) -> Option<(u32, f32)> {
+    pub(super) fn mod_held_food(&self) -> Option<horizon_mods::HeldFood> {
+        use horizon_client::items::ConsumeEffect;
         let stack = self.inventory.get(self.selected)?.as_ref()?;
-        self.res.items().get(&stack.item)?.food
+        let info = self.res.items().get(&stack.item)?;
+        let (nutrition, saturation) = info.food?;
+        let specs = info
+            .consumable
+            .iter()
+            .flat_map(|c| &c.effects)
+            .flat_map(|e| match e {
+                ConsumeEffect::ApplyEffects { effects, .. } => effects.as_slice(),
+                _ => &[],
+            });
+        let (mut hunger_effect, mut regeneration) = (false, None);
+        for spec in specs {
+            match spec.id.strip_prefix("minecraft:").unwrap_or(&spec.id) {
+                "hunger" => hunger_effect = true,
+                "regeneration" => {
+                    regeneration = Some((spec.amplifier.max(0) as u32, spec.duration.max(0) as u32))
+                }
+                _ => {}
+            }
+        }
+        Some(horizon_mods::HeldFood {
+            nutrition,
+            saturation,
+            always_edible: info.can_always_eat,
+            hunger_effect,
+            regeneration,
+        })
     }
     /// The use button while playing: true when a mod claimed the held item,
     /// so the game does nothing else with it (no placing, eating, swing).

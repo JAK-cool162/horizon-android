@@ -172,6 +172,32 @@ const STORAGE_MAX_KEYS: usize = 64;
 /// cap, separate from the on-disk quota it would otherwise stay under.
 const STORAGE_WRITE_BUDGET: u64 = 1 << 20;
 
+/// The player's hunger and what bears on healing (`game.get-food`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FoodState {
+    pub food: u32,
+    pub saturation: f32,
+    /// The server's count, where this game or its server thread runs the world.
+    pub exhaustion: Option<f32>,
+    /// The HUD shows the hunger bar.
+    pub shown: bool,
+    pub health: f32,
+    pub max_health: f32,
+    pub natural_regeneration: bool,
+    pub health_effect: bool,
+    pub hardcore: bool,
+}
+/// What eating an item gives (`input.held-food`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HeldFood {
+    pub nutrition: u32,
+    pub saturation: f32,
+    pub always_edible: bool,
+    pub hunger_effect: bool,
+    /// Amplifier and ticks.
+    pub regeneration: Option<(u32, u32)>,
+}
+
 /// What mods may read of the game, copied once per tick by the game.
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
@@ -184,11 +210,10 @@ pub struct Snapshot {
     /// The main hand's durability: uses left, maximum, Unbreaking level
     /// (`input.held-durability`).
     pub held_durability: Option<(u32, u32, u32)>,
-    /// The player's hunger (`game.get-food`): food, saturation, the server's exhaustion when
-    /// this game runs the world, and whether the HUD shows the hunger bar.
-    pub food: Option<(u32, f32, Option<f32>, bool)>,
-    /// What eating the main hand's stack gives: nutrition, saturation (`input.held-food`).
-    pub held_food: Option<(u32, f32)>,
+    /// The player's hunger and what bears on healing (`game.get-food`).
+    pub food: Option<FoodState>,
+    /// What eating the main hand's stack gives (`input.held-food`).
+    pub held_food: Option<HeldFood>,
     /// The game's frame counter: fps, min, 1% low (`render.frame-stats`).
     pub frame: (u32, u32, u32),
     /// The movement and click mappings `input.mapping` answers for:
@@ -499,6 +524,8 @@ struct State {
     ui: UiState,
     /// Capability `render`'s HUD shapes, drawn until replaced.
     shapes: Vec<Shape>,
+    /// Its shapes under the hearts and hunger bar (`set-hud-under`).
+    shapes_under: Vec<Shape>,
     /// Capability `render`'s corner panel.
     corner: Option<CornerPanel>,
     /// Capability `render`'s block outlines, drawn until replaced.
@@ -752,6 +779,7 @@ impl Mods {
             panel: None,
             ui: UiState::default(),
             shapes: Vec::new(),
+            shapes_under: Vec::new(),
             corner: None,
             outlines: Vec::new(),
             zoom: None,
@@ -1516,6 +1544,14 @@ impl Mods {
             .filter_map(|e| e.run.as_ref())
             .flat_map(|r| &r.store.data().shapes)
     }
+    /// The running mods' HUD shapes under the status bars (`render.set-hud-under`), in
+    /// the same order.
+    pub fn hud_shapes_under(&self) -> impl Iterator<Item = &Shape> {
+        self.entries
+            .iter()
+            .filter_map(|e| e.run.as_ref())
+            .flat_map(|r| &r.store.data().shapes_under)
+    }
     /// The screen mod `i` last pushed with `ui.open-screen`, while it is up.
     pub fn screen(&self, i: usize) -> Option<&UiScreen> {
         self.entries
@@ -1769,12 +1805,17 @@ impl game::Host for State {
         view.as_ref()?.block(dimension, x, y, z)
     }
     fn get_food(&mut self) -> Option<game::FoodStats> {
-        let (food, saturation, exhaustion, shown) = self.snapshot.food?;
+        let f = self.snapshot.food?;
         Some(game::FoodStats {
-            food,
-            saturation,
-            exhaustion,
-            shown,
+            food: f.food,
+            saturation: f.saturation,
+            exhaustion: f.exhaustion,
+            shown: f.shown,
+            health: f.health,
+            max_health: f.max_health,
+            natural_regeneration: f.natural_regeneration,
+            health_effect: f.health_effect,
+            hardcore: f.hardcore,
         })
     }
 }
@@ -2133,10 +2174,13 @@ impl input::Host for State {
         })
     }
     fn held_food(&mut self) -> Option<input::FoodValue> {
-        let (nutrition, saturation) = self.snapshot.held_food?;
+        let f = self.snapshot.held_food?;
         Some(input::FoodValue {
-            nutrition,
-            saturation,
+            nutrition: f.nutrition,
+            saturation: f.saturation,
+            always_edible: f.always_edible,
+            hunger_effect: f.hunger_effect,
+            regeneration: f.regeneration,
         })
     }
     fn poll(&mut self) -> Vec<InputEvent> {
@@ -2212,6 +2256,9 @@ fn clip_shapes(shapes: Vec<Shape>) -> Vec<Shape> {
 impl render::Host for State {
     fn set_hud(&mut self, shapes: Vec<Shape>) {
         self.shapes = clip_shapes(shapes);
+    }
+    fn set_hud_under(&mut self, shapes: Vec<Shape>) {
+        self.shapes_under = clip_shapes(shapes);
     }
     fn set_outlines(&mut self, outlines: Vec<ModOutline>) {
         self.outlines = outlines.into_iter().take(OUTLINES).collect();

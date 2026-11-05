@@ -167,6 +167,11 @@ The player's hunger, as the HUD shows it and the food rules count it.
 | `saturation` | `f32` | 0 to the food level: spent before food when exhaustion passes 4. |
 | `exhaustion` | `option<f32>` | 0 to 4: each 4 takes a point of saturation, or of food when there is none. No packet carries it: known in single player (on the server thread too), none on a server or a LAN world someone else hosts. |
 | `shown` | `bool` | The hunger bar is on the HUD: survival or adventure, not riding. |
+| `health` | `f32` | Hit points, and the most they can be (the `max_health` attribute). |
+| `max-health` | `f32` |  |
+| `natural-regeneration` | `bool` | Food heals: the `natural_regeneration` rule is on and the difficulty isn't peaceful. |
+| `health-effect` | `bool` | Poison, wither or regeneration is on the player: health changes on its own. |
+| `hardcore` | `bool` | A hardcore world (its hearts look different). |
 
 | Function | Signature | What it does |
 | --- | --- | --- |
@@ -368,6 +373,9 @@ What eating an item gives, as its food component says.
 | --- | --- | --- |
 | `nutrition` | `u32` | Hunger points (half drumsticks). |
 | `saturation` | `f32` | Saturation added, up to the food level then. |
+| `always-edible` | `bool` | Eaten with a full hunger bar too (golden apples, chorus fruit, suspicious stew). |
+| `hunger-effect` | `bool` | May give hunger (rotten flesh, raw chicken, pufferfish). |
+| `regeneration` | `option<tuple<u32, u32>>` | The regeneration it gives, if any: amplifier (0 for level I) and ticks. |
 
 ### record `mapping-state`
 
@@ -527,7 +535,8 @@ A block's outline in the world.
 | Function | Signature | What it does |
 | --- | --- | --- |
 | `set-outlines` | `func(outlines: list<outline>)` | Replaces the mod's block outlines: up to 1024, drawn every frame in the world as one shape (only the edges where the blocks' surface turns, not each block's), hidden with the HUD (F1). An empty list removes them. Level 10. |
-| `set-hud` | `func(shapes: list<shape>)` | Replaces the mod's HUD shapes: up to 1024, drawn every frame in order over the HUD (after the hotbar, under chat and screens), hidden with the HUD (F1). An empty list removes them. |
+| `set-hud` | `func(shapes: list<shape>)` | Replaces the mod's HUD shapes: up to 1024, drawn every frame in order over the HUD (after the hotbar, the hearts and the hunger bar, under chat and screens), hidden with the HUD (F1). An empty list removes them. |
+| `set-hud-under` | `func(shapes: list<shape>)` | As `set-hud`, for shapes drawn under the hearts, armor, hunger and air bars (over the hotbar): a backdrop that shows around their icons. Level 11. |
 | `gui-size` | `func() -> tuple<f32, f32>` | The screen's size in GUI pixels (width, height), as of this tick. |
 | `shake` | `func(strength: f32, seconds: f32)` | Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that fades out over `seconds` (at most 10). Jolts add up to 1. The view turns, the player doesn't, and the player's Distortion Effects option scales it (0 turns it off). |
 | `set-corner` | `func(corner: corner, width: f32, height: f32, shapes: list<shape>)` | Replaces the mod's corner panel: shapes in GUI pixels from the top left of a `width` × `height` box that the game places in `corner`, stacked with the game's overlays and the other mods' panels (under the status effects at the top right), as `hud`'s panels are. |

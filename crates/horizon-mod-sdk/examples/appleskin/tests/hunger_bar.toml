@@ -1,23 +1,30 @@
-# AppleSkin H in the game's test harness: what it draws on the hunger bar.
+# AppleSkin H in the game's test harness: what it draws on the hearts and the hunger bar.
 
-# 13 food, 5 saturation: gold outlines on two whole drumsticks and half of the third, no
-# exhaustion shade at 0.
+# A full bar with no saturation and 2 exhaustion: half of AppleSkin's 81-pixel checkerboard
+# under the bar (40 columns × 9 rows, every other pixel), no outline.
 [[step]]
-player = { food = 13, saturation = 5.0, exhaustion = 0.0 }
+player = { food = 20, saturation = 0.0, exhaustion = 2.0 }
 ticks = 1
-expect.hud-fills = 10
+expect.hud-fills = 180
 expect.hud-sprites = []
 
-# Bread in hand (5 food, 6 saturation): drumsticks 14 to 18 flash, and the saturation it adds is
-# outlined too; exhaustion past 2 shades half the bar.
+# Bread in hand (5 food, 6 saturation) at 13 food and full health: drumsticks 7 to 9 flash
+# (the half 7th filled out), each over a faint empty one.
 [[step]]
-player = { held-food = [5, 6.0], exhaustion = 2.0 }
+player = { health = 20.0, food = 13, saturation = 5.0, exhaustion = 0.0, held-food = [5, 6.0] }
 ticks = 1
-expect.hud-sprites = ["hud/food_full", "hud/food_full", "hud/food_full"]
+expect.hud-sprites = [
+    "hud/food_empty", "hud/food_full",
+    "hud/food_empty", "hud/food_full",
+    "hud/food_empty", "hud/food_full",
+]
 
-# Nothing in hand and a full bar: outlines only.
+# Sweet berries (2 food, 0.4 saturation) at 16 food and 10 health: 18 food heals 2 by natural
+# regeneration before it drops to 17, so the 6th heart flashes, then the 9th drumstick.
 [[step]]
-player = { food = 20, saturation = 20.0, held-food = [0, 0.0], exhaustion = 0.0 }
+player = { health = 10.0, food = 16, saturation = 0.0, held-food = [2, 0.4] }
 ticks = 1
-expect.hud-fills = 40
-expect.hud-sprites = []
+expect.hud-sprites = [
+    "hud/heart/container", "hud/heart/full",
+    "hud/food_empty", "hud/food_full",
+]

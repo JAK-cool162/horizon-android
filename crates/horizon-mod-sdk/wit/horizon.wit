@@ -81,6 +81,16 @@ interface game {
         exhaustion: option<f32>,
         /// The hunger bar is on the HUD: survival or adventure, not riding.
         shown: bool,
+        /// Hit points, and the most they can be (the `max_health` attribute).
+        health: f32,
+        max-health: f32,
+        /// Food heals: the `natural_regeneration` rule is on and the difficulty isn't
+        /// peaceful.
+        natural-regeneration: bool,
+        /// Poison, wither or regeneration is on the player: health changes on its own.
+        health-effect: bool,
+        /// A hardcore world (its hearts look different).
+        hardcore: bool,
     }
     /// The player's hunger, as of this tick; none on the title screen. Level 11.
     get-food: func() -> option<food-stats>;
@@ -290,6 +300,12 @@ interface input {
         nutrition: u32,
         /// Saturation added, up to the food level then.
         saturation: f32,
+        /// Eaten with a full hunger bar too (golden apples, chorus fruit, suspicious stew).
+        always-edible: bool,
+        /// May give hunger (rotten flesh, raw chicken, pufferfish).
+        hunger-effect: bool,
+        /// The regeneration it gives, if any: amplifier (0 for level I) and ticks.
+        regeneration: option<tuple<u32, u32>>,
     }
     /// What eating the main hand's stack would give, as of this tick; none when it is empty or
     /// isn't food. Level 11.
@@ -407,9 +423,14 @@ interface render {
     /// Level 10.
     set-outlines: func(outlines: list<outline>);
     /// Replaces the mod's HUD shapes: up to 1024, drawn every frame in
-    /// order over the HUD (after the hotbar, under chat and screens), hidden
-    /// with the HUD (F1). An empty list removes them.
+    /// order over the HUD (after the hotbar, the hearts and the hunger bar,
+    /// under chat and screens), hidden with the HUD (F1). An empty list
+    /// removes them.
     set-hud: func(shapes: list<shape>);
+    /// As `set-hud`, for shapes drawn under the hearts, armor, hunger and air
+    /// bars (over the hotbar): a backdrop that shows around their icons.
+    /// Level 11.
+    set-hud-under: func(shapes: list<shape>);
     /// The screen's size in GUI pixels (width, height), as of this tick.
     gui-size: func() -> tuple<f32, f32>;
     /// Shakes the camera: a jolt of `strength` (0 to 1, 1 the hardest) that

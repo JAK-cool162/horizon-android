@@ -8139,7 +8139,7 @@ impl Game<'_> {
             // Hud: the action bar and titles draw over the hotbar (nextStratum).
             horizon_client::hud::inset_overlay(&mut batch, margins, |b| self.draw_boss_bars(b));
             horizon_client::hud::inset_overlay(&mut batch, margins, |b| self.draw_extras(b));
-            self.draw_mod_shapes(&mut batch);
+            self.draw_mod_shapes_under(&mut batch);
         }
         if show_hud {
             // Hud.nextContextualInfoState: the jump bar, the experience bar or
@@ -8265,6 +8265,8 @@ impl Game<'_> {
             if !spectator {
                 self.draw_selected_name(&mut batch, bar_height, !self.creative);
             }
+            // Mods' HUD shapes, over the whole HUD (AppleSkin's outlines go on the hunger bar).
+            self.draw_mod_shapes(&mut batch);
         }
         // Hud.extractSleepOverlay: over all health/food bars, under titles and chat.
         let draws = hud_overlays::sleep_overlay(wi, hi, self.sleep_timer as i32);

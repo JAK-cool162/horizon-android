@@ -184,15 +184,24 @@ impl TestGame {
             players: self.players.clone(),
             // The GUI of a 1280 x 720 window at scale 3, as the trial run's.
             gui_size: (427.0, 240.0),
-            food: self.player.as_ref().map(|p| {
-                (
-                    p.food,
-                    self.saturation.min(p.food as f32),
-                    self.exhaustion,
-                    true,
-                )
+            food: self.player.as_ref().map(|p| crate::FoodState {
+                food: p.food,
+                saturation: self.saturation.min(p.food as f32),
+                exhaustion: self.exhaustion,
+                shown: true,
+                health: p.health,
+                max_health: 20.0,
+                natural_regeneration: true,
+                health_effect: false,
+                hardcore: false,
             }),
-            held_food: self.held_food,
+            held_food: self
+                .held_food
+                .map(|(nutrition, saturation)| crate::HeldFood {
+                    nutrition,
+                    saturation,
+                    ..Default::default()
+                }),
             ..Snapshot::default()
         });
     }
@@ -561,7 +570,8 @@ pub struct Expect {
     /// The panel's lines (`[]`: no panel) and its corner.
     panel: Option<Vec<String>>,
     corner: Option<String>,
-    /// The sprites of the mod's HUD shapes (`render.set-hud`) after the step, in order.
+    /// The sprites of the mod's HUD shapes (`render.set-hud-under`, then `render.set-hud`)
+    /// after the step, in order.
     hud_sprites: Option<Vec<String>>,
     /// How many filled boxes its HUD shapes hold.
     hud_fills: Option<usize>,
@@ -982,7 +992,11 @@ impl Step {
             same("answer", &Some(want.clone()), &answer)?;
         }
         if e.hud_sprites.is_some() || e.hud_fills.is_some() {
-            let shapes: Vec<&crate::Shape> = game.mods.hud_shapes().collect();
+            let shapes: Vec<&crate::Shape> = game
+                .mods
+                .hud_shapes_under()
+                .chain(game.mods.hud_shapes())
+                .collect();
             if let Some(want) = &e.hud_sprites {
                 let got: Vec<String> = shapes
                     .iter()
